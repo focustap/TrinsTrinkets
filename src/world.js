@@ -19,7 +19,10 @@ function sign(text,color='#735a55',background='#fff4e9',w=2.8,h=.66) {
   ctx.fillStyle=background;ctx.beginPath();ctx.roundRect(8,8,496,112,22);ctx.fill();
   ctx.fillStyle=color;ctx.font='bold 43px Georgia';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(text,256,67,474);
   const tex=new THREE.CanvasTexture(canvas);tex.colorSpace=THREE.SRGBColorSpace;
-  return new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({map:tex,transparent:true,side:THREE.DoubleSide}));
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({map:tex,transparent:true,side:THREE.FrontSide}));
+  // Signs are mounted on negative-Z faces; turn them toward approaching players, not away.
+  face.rotation.y=Math.PI;
+  return face;
 }
 
 function sandTexture() {
@@ -30,7 +33,7 @@ function sandTexture() {
     g.fillStyle=i%3===0?'rgba(255,255,242,.20)':'rgba(166,122,89,.10)';
     g.fillRect(x,y,Math.random()*2+0.3,Math.random()*2+0.3);
   }
-  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(24,24);
+  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(11,11);
   t.colorSpace=THREE.SRGBColorSpace;return t;
 }
 
@@ -57,7 +60,7 @@ function grasses(x,z) {
 
 function makeCottage(scene) {
   const house=new THREE.Group(),paint=mat('#f3e5d7'),roof=mat('#b98891'),trim=mat('#fffaf0'),wood=mat('#9b7661'),glass=mat('#a8d7e4',.21);
-  house.position.set(-12,0,24);
+  house.position.set(-7.5,0,13);
   house.add(box(7,4.1,6,paint,0,2.05,0));
   const a=box(4.5,.25,6.8,roof,-1.88,4.68,0);a.rotation.z=Math.PI/4;house.add(a);
   const b=box(4.5,.25,6.8,roof,1.88,4.68,0);b.rotation.z=-Math.PI/4;house.add(b);
@@ -77,12 +80,12 @@ function makeCottage(scene) {
     const stone=new THREE.Mesh(new THREE.CylinderGeometry(.36,.45,.07,9),mat('#c1b7aa'));
     stone.position.set(Math.sin(i*.7)*.6,.04,-3.9-i*.75);house.add(stone);
   }
-  scene.add(house);return V(-12,0,18.6);
+  scene.add(house);return V(-7.5,0,7.9);
 }
 
 function makeExchange(scene) {
   const s=new THREE.Group(),wood=mat('#ba8d73'),white=mat('#fff1e4'),accent=mat('#e7a8b0'),sea=mat('#9fcac7');
-  s.position.set(13,0,20);
+  s.position.set(7.5,0,12);
   s.add(box(5.3,.24,3.4,wood,0,1.48,0));
   for(const x of [-2.35,2.35])for(const z of [-1.35,1.35])s.add(box(.18,3.5,.18,wood,x,1.76,z));
   s.add(box(5.6,.27,3.8,white,0,3.48,0));
@@ -94,7 +97,7 @@ function makeExchange(scene) {
   for(let i=0;i<5;i++)s.add(ball(.17,mat(i%2?'#ffe3b3':'#f4b5ba'),-2.05+i*.23,2.31,-.67,10));
   const register=box(.9,.28,.65,white,1.50,1.96,-.65);s.add(register);
   const price=sign('SELL  •  SHOP','#8f7b68','#fff3e9',2.1,.43);price.position.set(1.2,1.04,-1.45);s.add(price);
-  scene.add(s);return V(13,0,16.2);
+  scene.add(s);return V(7.5,0,8.2);
 }
 
 export function createTreasure(item,scale=1) {
@@ -168,45 +171,65 @@ export function createTreasure(item,scale=1) {
 
 export function createBeachScene() {
   const scene=new THREE.Scene();scene.background=new THREE.Color('#a7dfe5');scene.fog=new THREE.FogExp2('#a7dfe5',.0075);
-  const camera=new THREE.PerspectiveCamera(72,1,.1,220);camera.position.set(0,1.7,10);camera.rotation.order='YXZ';
+  const camera=new THREE.PerspectiveCamera(72,1,.1,220);camera.position.set(0,1.7,2);camera.rotation.order='YXZ';
   scene.add(new THREE.HemisphereLight('#ffeed4','#81bdb2',2.05));
   const sunlight=new THREE.DirectionalLight('#fff2cc',2.55);sunlight.position.set(-25,35,-35);
   sunlight.castShadow=true;sunlight.shadow.mapSize.set(2048,2048);sunlight.shadow.camera.left=-40;sunlight.shadow.camera.right=40;sunlight.shadow.camera.top=45;sunlight.shadow.camera.bottom=-40;scene.add(sunlight);
-  const ground=new THREE.Mesh(new THREE.PlaneGeometry(140,115),new THREE.MeshStandardMaterial({map:sandTexture(),roughness:1}));
-  ground.rotation.x=-Math.PI/2;ground.position.set(0,-.08,28);ground.receiveShadow=true;scene.add(ground);
-  const wet=new THREE.Mesh(new THREE.PlaneGeometry(90,6),new THREE.MeshStandardMaterial({color:'#d7d4ba',roughness:.55,transparent:true,opacity:.65}));
-  wet.rotation.x=-Math.PI/2;wet.position.set(0,-.05,-22);scene.add(wet);
-  const oceanGeo=new THREE.PlaneGeometry(160,140,64,35);oceanGeo.rotateX(-Math.PI/2);
+  const ground=new THREE.Mesh(new THREE.PlaneGeometry(39,38),new THREE.MeshStandardMaterial({map:sandTexture(),roughness:1}));
+  ground.rotation.x=-Math.PI/2;ground.position.set(0,-.08,3);ground.receiveShadow=true;scene.add(ground);
+  const wet=new THREE.Mesh(new THREE.PlaneGeometry(39,2.4),new THREE.MeshStandardMaterial({color:'#d7d4ba',roughness:.55,transparent:true,opacity:.65}));
+  wet.rotation.x=-Math.PI/2;wet.position.set(0,-.05,-14.9);scene.add(wet);
+  const oceanGeo=new THREE.PlaneGeometry(95,120,64,35);oceanGeo.rotateX(-Math.PI/2);
   const base=new Float32Array(oceanGeo.attributes.position.array);
   const water=new THREE.Mesh(oceanGeo,new THREE.MeshPhysicalMaterial({color:'#69c8cc',roughness:.27,metalness:.12,transparent:true,opacity:.94,clearcoat:.7,side:THREE.DoubleSide}));
-  water.position.set(0,-.2,-97);scene.add(water);
+  water.position.set(0,-.2,-76);scene.add(water);
   const foam=[];
   for(let i=0;i<7;i++){
-    const f=new THREE.Mesh(new THREE.PlaneGeometry(68,.15+i*.034),new THREE.MeshBasicMaterial({color:'#fbffea',transparent:true,opacity:.55,side:THREE.DoubleSide}));
-    f.rotation.x=-Math.PI/2;f.position.set(0,.015,-25.5-i*.58);scene.add(f);foam.push(f);
+    const f=new THREE.Mesh(new THREE.PlaneGeometry(39,.15+i*.034),new THREE.MeshBasicMaterial({color:'#fbffea',transparent:true,opacity:.55,side:THREE.DoubleSide}));
+    f.rotation.x=-Math.PI/2;f.position.set(0,.015,-16-i*.46);scene.add(f);foam.push(f);
   }
-  const sun=ball(8,new THREE.MeshBasicMaterial({color:'#fff0cf'}),-28,30,-140,32);scene.add(sun);
-  for(let i=0;i<28;i++){
-    const x=(Math.random()-.5)*70,z=Math.random()*47-8;
-    if((x>-17&&x<-7&&z>13)||(x>9&&x<17&&z>12))continue;
-    if(i%4===0)scene.add(flower(x,z,['#ffc3c5','#fff4e5','#cdbce5'][i%3]));
+  const sun=ball(7,new THREE.MeshBasicMaterial({color:'#fff0cf'}),-27,27,-110,32);scene.add(sun);
+  // A compact, sheltered cove replaces the original featureless open sand plain.
+  // Curved rocky edges and dune grass make the playable area feel intentionally small.
+  const rockMats=[mat('#c0aca0'),mat('#d2bca8'),mat('#aeb5a8')];
+  const dune=mat('#e9d2aa'),grass=mat('#9aaf86');
+  for(const side of [-1,1]){
+    for(let i=0;i<25;i++){
+      const z=-16+i*1.54+(Math.random()-.5)*.7;
+      const x=side*(16+Math.sin(i*.47)*1.3+Math.random()*.5);
+      const radius=1.45+Math.random()*1.4;
+      const stone=ball(radius,rockMats[i%3],x,radius*.36,z,9);
+      stone.scale.set(1.15,.6,1.0+Math.random()*.4);
+      stone.rotation.y=Math.random()*3;scene.add(stone);
+      if(i%2===0)scene.add(grasses(x-side*1.5,z));
+    }
+  }
+  for(let i=0;i<23;i++){
+    const x=-18+i*1.65,z=20+Math.sin(i*.5)*1.4;
+    const hill=ball(2.2+Math.random()*1.4,i%3===0?rockMats[1]:dune,x,.7,z,11);
+    hill.scale.set(1,.65,1.25);scene.add(hill);
+  }
+  for(let i=0;i<45;i++){
+    const x=(Math.random()-.5)*29,z=Math.random()*30-12;
+    if((x>-11.5&&x<-3.5&&z>7)||(x>4&&x<11&&z>7))continue;
+    if(i%5===0)scene.add(flower(x,z,['#ffc3c5','#fff4e5','#cdbce5'][i%3]));
     else scene.add(grasses(x,z));
   }
-  for(let i=0;i<30;i++){
-    const x=(Math.random()-.5)*60,z=Math.random()*55-17;
-    const stone=ball(.08+Math.random()*.23,mat(i%3===0?'#cfbfa8':'#e4c9af'),x,.07,z,8);
-    stone.scale.set(1,.55,1.3);scene.add(stone);
+  for(let i=0;i<34;i++){
+    const x=(Math.random()-.5)*29,z=Math.random()*29-13;
+    const stone=ball(.06+Math.random()*.15,rockMats[i%3],x,.05,z,8);
+    stone.scale.set(1,.45,1.2);scene.add(stone);
   }
-  for(let i=0;i<6;i++){
-    const x=(Math.random()-.5)*43,z=Math.random()*42-10;
-    const drift=box(1.1+Math.random()*1.3,.12,.2,mat('#b1a394'),x,.12,z);
+  for(let i=0;i<7;i++){
+    const x=(Math.random()-.5)*26,z=Math.random()*27-12;
+    const drift=box(.8+Math.random()*.8,.11,.16,mat('#b1a394'),x,.09,z);
     drift.rotation.y=Math.random()*Math.PI;scene.add(drift);
   }
   const cottage=makeCottage(scene),exchange=makeExchange(scene);
   const finds=[];
-  function spawn(item,method,x,z){
+  function spawn(item,method,x,z,uid){
     const g=new THREE.Group();g.position.set(x,0,z);
-    g.userData.find={item,method};
+    g.userData.find={item,method,uid};
     if(method==='surface'){
       const object=createTreasure(item,.88);object.position.y=.04;object.rotation.y=Math.random()*6.28;
       g.add(object);
@@ -225,6 +248,7 @@ export function createBeachScene() {
     scene.add(g);finds.push(g);return g;
   }
   function remove(g){scene.remove(g);const i=finds.indexOf(g);if(i!==-1)finds.splice(i,1);}
+  function clearFinds(){for(const g of [...finds])remove(g);}
   function update(t,scan){
     const pos=oceanGeo.attributes.position;
     for(let i=0;i<pos.count;i++){
@@ -234,7 +258,7 @@ export function createBeachScene() {
     pos.needsUpdate=true;
     foam.forEach((m,i)=>{
       m.material.opacity=.36+Math.sin(t*1.6+i*.5)*.16;
-      m.position.z=-25.5-i*.58+Math.sin(t*.7+i)*.18;
+      m.position.z=-16-i*.46+Math.sin(t*.7+i)*.18;
     });
     for(const g of finds){
       if(g.userData.find.method==='detector')g.visible=scan;
@@ -243,7 +267,7 @@ export function createBeachScene() {
         g.children[0].rotation.y+=.002;
     }
   }
-  return {scene,camera,finds,spawn,remove,update,stations:{cottage,exchange}};
+  return {scene,camera,finds,spawn,remove,clearFinds,update,stations:{cottage,exchange}};
 }
 
 export function createShelfScene() {
@@ -261,6 +285,15 @@ export function createShelfScene() {
   }
   scene.add(box(11,.19,.3,mat('#faf5ee'),0,.19,-3.6));
   const rug=new THREE.Mesh(new THREE.CircleGeometry(2,48),mat('#f1cbd1'));rug.rotation.x=-Math.PI/2;rug.scale.set(1.6,.85,1);rug.position.set(0,.085,2.4);scene.add(rug);
+  // A small soft bed gives the cottage a place to end the day.
+  const bed=new THREE.Group();bed.position.set(3.8,0,.5);
+  bed.add(box(1.8,.24,2.4,mat('#b98f82'),0,.33,0));
+  bed.add(box(1.68,.21,2.26,mat('#faf1e5'),0,.52,0));
+  bed.add(box(1.73,.12,1.33,mat('#e5aeb7'),0,.68,.42));
+  bed.add(box(1.9,.86,.17,mat('#cba494'),0,.72,-1.15));
+  for(const x of [-.44,.44])bed.add(box(.68,.17,.54,mat('#fff8ef'),x,.69,-.69));
+  for(const x of [-.76,.76])for(const z of [-1,1])bed.add(box(.12,.4,.13,mat('#b98f82'),x,.16,z));
+  scene.add(bed);
   const group=new THREE.Group();scene.add(group);
   const upright=mat('#faf0dc');for(const x of [-2.5,2.5])group.add(box(.18,3.7,.65,upright,x,2.25,-2.7));
   const heights=[1.18,2.13,3.07];
