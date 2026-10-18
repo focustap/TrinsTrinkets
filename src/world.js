@@ -112,10 +112,10 @@ function treasure(item,scale=1){
   return model;
 }
 function rounded(w,h,d,r,material,x=0,y=0,z=0){
-  return Object.assign(new THREE.Mesh(new RoundedBoxGeometry(w,h,d,4,r),material),{
-    position:new THREE.Vector3(x,y,z),
-    castShadow:true,receiveShadow:true
-  });
+  const m=new THREE.Mesh(new RoundedBoxGeometry(w,h,d,4,r),material);
+  m.position.set(x,y,z);
+  m.castShadow=true;m.receiveShadow=true;
+  return m;
 }
 export function createBeachScene() {
   const scene=new THREE.Scene();scene.background=new THREE.Color('#a7dfe5');scene.fog=new THREE.FogExp2('#a7dfe5',.0075);
@@ -307,7 +307,7 @@ export function createShelfScene() {
       garland.push(bulb);
     }
   }
-  rim(displayFrame,wirePoints,.011,mat('#a08a7b'));
+  curve(displayFrame,wirePoints,.011,mat('#a08a7b'));
   // Whimsical wall frames, foliage, and tiny seaside props.
   const flowerFrame=rounded(1.2,1.23,.12,.075,mat('#cfaa91'),-3.89,3.06,-3.56);
   scene.add(flowerFrame);
@@ -325,7 +325,7 @@ export function createShelfScene() {
     const a=i*Math.PI*2/7;
     const leaves=[[3.9,.72,-2.7],[3.9+Math.cos(a)*.13,1.1,-2.7+Math.sin(a)*.13],
       [3.9+Math.cos(a)*.4,1.39,-2.7+Math.sin(a)*.24]];
-    rim(scene,leaves,.028,mat('#83a78c'));
+    curve(scene,leaves,.028,mat('#83a78c'));
     const l=ball(.13,mat('#9bbb9a'),leaves[2][0],leaves[2][1],leaves[2][2]);l.scale.set(1,.42,.77);
     scene.add(l);
   }
