@@ -12,7 +12,7 @@
   <div class="scene-vignette"></div>
   <header class="hud">
     <div class="brand"><span class="brand-icon">✿</span><span>trin's <b>trinkets</b><small>a little beachcombing story</small></span></div>
-    <div class="hud-right"><div class="money"><span>☀</span> <strong id="balance">0</strong><small>sand dollars</small></div><button class="icon-button" id="sound" aria-label="Toggle ocean sounds" title="Toggle ocean sounds">♫</button></div>
+    <div class="hud-right"><div class="day-indicator">☼ Day <strong id="dayNumber">1</strong></div><div class="money"><span>☀</span> <strong id="balance">0</strong><small>sand dollars</small></div><button class="icon-button" id="sound" aria-label="Toggle ocean sounds" title="Toggle ocean sounds">♫</button></div>
   </header>
   <div class="mission" id="mission">Collect a little something lovely ✦</div>
   <div class="crosshair" id="crosshair">✧</div>
@@ -28,8 +28,9 @@
     <div class="shelf-heading"><span>✧</span> my treasure shelves <span>✧</span></div>
     <div class="custom-row"><button id="wallButton">🎨 Wall: Cream</button><button id="woodButton">🪵 Shelf: Maple</button><button id="lightButton">✨ Fairy lights: On</button></div>
     <p>Drag treasures to arrange · Q / R rotates selected treasure · Select a treasure to remove it</p>
-    <div class="shelf-actions"><button id="addShelfButton">+ Place a treasure</button><button id="removeShelfButton" disabled>Remove selected</button><button id="beachButton">← Back to the beach</button></div>
+    <div class="shelf-actions"><button id="addShelfButton">+ Place a treasure</button><button id="removeShelfButton" disabled>Remove selected</button><button id="sleepButton">🌙 Sleep until morning</button><button id="beachButton">← Back to the beach</button></div>
   </div>
+  <div id="sleepScreen" class="sleep-screen hidden"><div class="sleep-content"><div class="sleep-moon">☾</div><div id="sleepMessage">The waves whisper goodnight...</div><small id="sleepDay">Day 1</small></div></div>
   <div id="overlay" class="overlay">
     <section class="welcome">
       <div class="mini-sun">☼</div>
@@ -45,7 +46,7 @@
     <header class="panel-header"><div><div class="eyebrow" id="panelEyebrow">your little treasures</div><h2 id="panelTitle">Collections</h2></div><button id="closePanel" class="close-button" aria-label="Close">×</button></header>
     <div id="panelContent" class="panel-content"></div>
   </section>
-  <footer class="tips" id="tips">WASD move · mouse look · E collect · F detector · click the scene to look around</footer>
+  <footer class="tips" id="tips">WASD move · E collect · F detector · H cottage · sleep for a new tide</footer>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
