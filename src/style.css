@@ -20,3 +20,16 @@
 .shelf-controls{position:fixed;bottom:116px;left:50%;transform:translateX(-50%);min-width:min(650px,96vw);max-width:96vw;background:#fff9f1f0;backdrop-filter:blur(12px);border:1px solid white;box-shadow:var(--shadow);border-radius:23px;padding:14px 20px 16px;text-align:center}.shelf-heading{font:600 23px Fraunces,Georgia,serif;color:#a5777a}.shelf-heading span{font-size:14px;color:#e0a4b1}.custom-row,.shelf-actions{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:11px}.custom-row button,.shelf-actions button{background:#f4e4dc;color:#8d6e67;padding:10px 11px;font-size:11px;font-weight:800;border-radius:11px}.shelf-actions button:first-child{background:#d99daa;color:#fff}.shelf-actions button:last-child{background:#c3d9d4;color:#5c8378}.shelf-controls p{font-size:11px;color:#a58e84;margin:10px 0 0}
 body.in-shelf .mission,body.in-shelf .crosshair,body.in-shelf .interaction,body.in-shelf .tips{display:none}
 @media(max-width:620px){.hud{padding:13px;gap:8px}.brand>span:last-child{font-size:17px}.brand-icon{width:36px;height:36px;font-size:25px}.brand small{font-size:7px}.money{padding:7px 10px}.money strong{font-size:17px}.money small{display:none}.icon-button{width:38px;height:38px}.mission{top:79px;left:13px;font-size:10px}.quickbar{bottom:14px;width:calc(100vw - 16px);justify-content:space-around;gap:2px;padding:5px;border-radius:17px}.quickbar button{min-width:0;width:25%;height:57px;gap:0}.quickbar button span{font-size:19px}.quickbar button b{font-size:9px}.quickbar button small{display:none}.tips{display:none}.interaction{bottom:91px}.panel{right:9px;top:50%;height:min(690px,calc(100vh - 18px));width:calc(100vw - 18px)}.welcome{padding:15px 23px 20px}.welcome-copy{font-size:13px}.shelf-controls{bottom:84px;max-width:calc(100vw - 12px);padding:8px 9px}.shelf-controls p{display:none}.shelf-heading{font-size:17px}.custom-row button,.shelf-actions button{padding:7px 8px;font-size:10px}.item-grid{gap:6px}.item-card{padding:10px}.panel-header{padding:18px}}
+
+
+/* Daily tide and sleep transition */
+.day-indicator{display:flex;align-items:center;gap:5px;border:1px solid #fff8;background:#fff9f1ec;backdrop-filter:blur(14px);border-radius:18px;padding:13px 15px;box-shadow:0 8px 20px #64544a20;color:#98726a;font-size:13px;font-weight:800;white-space:nowrap}
+.day-indicator strong{font:700 20px Fraunces,Georgia,serif;color:#cb8d95}
+.shelf-actions #sleepButton{background:#a6b4c9;color:#fff;box-shadow:0 3px 11px #a6b4c955}
+.shelf-actions #sleepButton:hover{background:#8fa2c0}
+.sleep-screen{position:fixed;inset:0;z-index:30;background:radial-gradient(ellipse at 50% 40%,#33354d,#171c30 76%);display:grid;place-items:center;opacity:0;transition:opacity .7s ease;pointer-events:none}
+.sleep-screen.active{opacity:1;pointer-events:auto}
+.sleep-content{text-align:center;color:#fff3e9;font:600 clamp(18px,3vw,28px) Fraunces,Georgia,serif;line-height:1.5}
+.sleep-moon{font-size:75px;color:#f6d9a5;margin-bottom:12px}
+.sleep-content small{display:block;margin-top:15px;color:#c7bfd0;text-transform:uppercase;font:700 12px 'DM Sans',Arial,sans-serif;letter-spacing:.22em}
+@media(max-width:620px){.day-indicator{padding:9px 10px;font-size:11px}.day-indicator strong{font-size:16px}.shelf-actions{margin-top:6px}.shelf-controls{bottom:83px}}
