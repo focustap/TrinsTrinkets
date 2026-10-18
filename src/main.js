@@ -34,7 +34,19 @@ function load(){
   }catch{return fresh();}
 }
 const state=load();
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(state));}catch{}};
+// Stable save key deliberately unchanged: existing browser collections are preserved.
+const save=()=>{
+  try{
+    localStorage.setItem(KEY,JSON.stringify(state));
+    const status=$('saveStatus');
+    if(status){status.textContent='✓ saved locally';status.dataset.error='false';}
+    return true;
+  }catch{
+    const status=$('saveStatus');
+    if(status){status.textContent='⚠ save unavailable';status.dataset.error='true';}
+    return false;
+  }
+};
 const beach=createBeachScene(),shelf=createShelfScene();
 shelf.setWall(SHOP_COLORS[state.wall]);shelf.setWood(WOODS[state.wood]);shelf.setLights(state.lights);
 
