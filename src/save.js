@@ -4,6 +4,7 @@ export const SAVE_KEY = 'trins-trinkets-save-v1',
 export const fresh = () => ({
   version: SAVE_VERSION,
   coins: 0,
+  devInfiniteMoney: false,
   bag: {},
   discovered: [],
   claimed: [],
@@ -37,6 +38,7 @@ export function migrateSave(raw) {
   // Keep unrecognized fields and IDs so later updates never erase dormant content.
   const s = { ...fresh(), ...raw, version: SAVE_VERSION };
   s.coins = Math.max(0, Math.floor(finite(raw.coins)));
+  s.devInfiniteMoney = raw.devInfiniteMoney === true;
   s.bag = Object.fromEntries(
     Object.entries(raw.bag || {})
       .filter(([, n]) => Number.isFinite(n))
