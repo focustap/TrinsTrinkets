@@ -35,7 +35,7 @@ export function claimCompletedSets(s) {
       )
     ) {
       s.claimed.push(set);
-      s.coins += 500;
+      if (set !== 'Moonpool Wonders') s.coins += 500;
       completed.push(set);
     }
   return completed;

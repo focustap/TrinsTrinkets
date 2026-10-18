@@ -1,5 +1,6 @@
 import * as T from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { buildMoonpool } from './moonpool-art.js';
 const V = (x, y, z) => new T.Vector3(x, y, z),
   TAU = Math.PI * 2;
 const materials = new Map(),
@@ -2053,6 +2054,26 @@ export const ART_FAMILIES = {
   ),
 };
 export function buildArtwork(g, item) {
+  if (item.type.startsWith('mp-')) {
+    buildMoonpool(g, item, {
+      mat,
+      mesh,
+      orb,
+      tube,
+      ring,
+      star,
+      heart,
+      surface,
+      flower,
+      gemstone,
+      chain,
+      shell,
+      mineral,
+      ocean,
+      keepsake,
+    });
+    return true;
+  }
   const make = ART_FAMILIES[item.type];
   if (!make) return false;
   make(g, item);

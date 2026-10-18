@@ -17,16 +17,27 @@ import {
   purchase,
   purchaseReason,
   canDiscover,
+  caveDiscoveryCount,
 } from './progression.js';
 import { loadSave, writeSave } from './save.js';
 import { ensureTides, advanceDay, takeFind } from './tide.js';
 import { shelfSlots, nearestSlot, slotFree } from './shelves.js';
 import { createBeachScene, createShelfScene } from './world.js';
 import { createCaveScene } from './cave.js';
+import { createMoonpoolScene } from './moonpool.js';
+import { BIOMES, stepThrough } from './locations.js';
+import { claimDecorRewards, rewardsHtml, toggleReward } from './rewards.js';
 import { mountMuseum, clearMuseum, renderMuseum } from './museum.js';
 import { openPainting } from './painting.js';
 import { previewState } from './preview.js';
-import { DEV_SEQUENCE, toggleUnlimitedMoney, resetProgress, devMenuHtml, resetConfirmHtml } from './devtools.js';
+import {
+  DEV_SEQUENCE,
+  toggleUnlimitedMoney,
+  resetProgress,
+  devMenuHtml,
+  resetConfirmHtml,
+  grantBiomeAccess,
+} from './devtools.js';
 import { sellTreasure, sellExtras, claimCompletedSets } from './inventory.js';
 
 const $ = (id) => document.getElementById(id),
@@ -42,7 +53,17 @@ try {
   };
 }
 const preview = new URLSearchParams(location.search).get('preview');
-const loaded = ['cottage', 'cave', 'legacy'].includes(preview)
+const loaded = [
+    'cottage',
+    'cave',
+    'legacy',
+    'moonpool',
+    'milestones',
+    'entrance-locked',
+    'entrance-open',
+    'passage-locked',
+    'passage-ready',
+  ].includes(preview)
     ? {
         state: previewState(preview),
         error: null,
@@ -51,6 +72,7 @@ const loaded = ['cottage', 'cave', 'legacy'].includes(preview)
       }
     : loadSave(storage),
   state = loaded.state;
+claimDecorRewards(state);
 let toastTimer,
   paintingCleanup = null;
 function save() {
@@ -72,8 +94,15 @@ function save() {
 }
 const beach = createBeachScene(),
   shelf = createShelfScene();
-let cave;
-const getCave = () => cave || (cave = createCaveScene());
+let cave, moonpool;
+const getCave = () => {
+  if (!cave) {
+    cave = createCaveScene();
+    cave.moonpoolPassage.setOpen(owns(state, 'moonpoolAccess'));
+  }
+  return cave;
+};
+const getMoonpool = () => moonpool || (moonpool = createMoonpoolScene());
 shelf.customize(state);
 beach.setGate(owns(state, 'caveAccess'));
 const renderer = new THREE.WebGLRenderer({
@@ -105,6 +134,8 @@ const clock = new THREE.Clock(),
   mouse = new THREE.Vector2(),
   yAxis = new THREE.Vector3(0, 1, 0);
 let mode = 'beach',
+  dragLook = false,
+  lookDragging = false,
   started = false,
   activePanel = '',
   tab = 'All',
@@ -116,7 +147,8 @@ let mode = 'beach',
   dragging = false,
   dragStart = null,
   lastPrompt = '';
-const currentWorld = () => (mode === 'cave' ? getCave() : beach);
+const currentWorld = () =>
+  mode === 'moonpool' ? getMoonpool() : mode === 'cave' ? getCave() : beach;
 const count = (id) => state.bag[id] || 0,
   onShelf = (id) => state.shelf.filter((p) => p.itemId === id).length,
   available = (id) => Math.max(0, count(id) - onShelf(id));
@@ -132,6 +164,7 @@ const iconFor = (i) =>
     'Lost Treasures': '🗝️',
     'Cave Crystals': '✧',
     'Cave Relics': '🌀',
+    'Moonpool Wonders': '☾',
   })[i.set] || '✧';
 const badge = (i) =>
   `<span class="rarity-badge" style="--rarity:${RARITIES[i.rarity].color}">${i.rarity}</span>`;
@@ -144,16 +177,22 @@ function toast(message) {
 function refreshHUD() {
   $('balance').textContent = state.devInfiniteMoney ? '∞' : money(state.coins);
   $('dayNumber').textContent = state.day;
-  const pool = mode === 'cave' ? state.caveFinds : state.beachFinds,
+  const pool = state[BIOMES[mode]?.finds || 'beachFinds'],
     remaining = pool?.filter((f) => canDiscover(state, f.method)).length || 0;
   $('mission').textContent =
-    `${mode === 'cave' ? 'Mossglass Cave' : 'The little cove'} · ${remaining} reachable finds · ${uniqueCount()}/200 treasures`;
+    `${BIOMES[mode]?.name || 'Your cottage'} · ${remaining} reachable finds · ${uniqueCount()}/${CATALOG.length} treasures`;
 }
 function spawnTides() {
   beach.clearFinds();
   for (const f of state.beachFinds)
     if (ITEMS[f.itemId])
       beach.spawn(ITEMS[f.itemId], f.method, f.x, f.z, f.uid);
+  if (moonpool) {
+    moonpool.clearFinds();
+    for (const f of state.moonpoolFinds || [])
+      if (ITEMS[f.itemId])
+        moonpool.spawn(ITEMS[f.itemId], f.method, f.x, f.z, f.uid);
+  }
   if (cave) {
     cave.clearFinds();
     for (const f of state.caveFinds)
@@ -187,9 +226,24 @@ function collect(find) {
   for (const set of claimCompletedSets(state))
     setTimeout(
       () =>
-        toast(set + ' complete! A pressed-flower seal & 500 sand dollars ♡'),
+        toast(
+          set === 'Moonpool Wonders'
+            ? 'Moonpool Wonders complete! Your glowing aquarium is yours ♡'
+            : set + ' complete! A pressed-flower seal & 500 sand dollars ♡',
+        ),
       1200,
     );
+  const earned = claimDecorRewards(state);
+  if (earned.length) {
+    shelf.customize(state);
+    setTimeout(
+      () =>
+        toast(
+          'Collection celebration · ' + earned.map((r) => r.name).join(', '),
+        ),
+      1900,
+    );
+  }
   save();
   refreshHUD();
 }
@@ -208,6 +262,15 @@ function nearTarget() {
   const w = currentWorld(),
     pos = w.camera.position,
     dist = (p) => Math.hypot(pos.x - p.x, pos.z - p.z);
+  if (mode === 'moonpool' && dist(w.stations.exit) < 2.4)
+    return { kind: 'moonpool-exit', name: 'Return to Mossglass Cave' };
+  if (mode === 'cave' && dist(w.stations.moonpool) < 2.5)
+    return {
+      kind: 'moonpool',
+      name: owns(state, 'moonpoolAccess')
+        ? 'Enter the Hidden Moonpool'
+        : 'Glowing passage · see Moonpool requirements',
+    };
   if (mode === 'cave' && dist(w.stations.exit) < 2.4)
     return { kind: 'exit', name: 'Return to the sunny cove' };
   if (mode === 'beach') {
@@ -242,7 +305,7 @@ function nearTarget() {
         find: f,
         score,
         name: canDiscover(state, m)
-          ? m === 'surface' || m === 'cave'
+          ? m === 'surface' || m === 'cave' || m === 'moonpool'
             ? 'Pick up ' + f.userData.find.item.name
             : 'Reveal with ' + (UPGRADES.find((u) => u.id === m)?.name || m)
           : 'Needs ' + (UPGRADES.find((u) => u.id === m)?.name || m),
@@ -263,25 +326,77 @@ function interact() {
     else exchange('equipment');
   }
   if (t.kind === 'exit') leaveCave();
+  if (t.kind === 'moonpool') {
+    if (owns(state, 'moonpoolAccess')) enterMoonpool();
+    else moonpoolRequirements();
+  }
+  if (t.kind === 'moonpool-exit') enterCave('moonpool');
 }
-function enterCave() {
+function enterCave(from = 'beach') {
   if (!owns(state, 'caveAccess')) return;
+  if (from !== 'moonpool' && !beach.entrance.canTraverse())
+    return toast('The stone is moving aside…');
   const w = getCave();
-  w.camera.position.set(0, 1.7, 1);
-  w.camera.rotation.set(0, 0, 0);
-  spawnTides();
+  w.camera.position.set(0, 1.7, from === 'moonpool' ? -20 : 1);
+  w.camera.rotation.set(0, from === 'moonpool' ? Math.PI : 0, 0);
   mode = 'cave';
+  state.biome = mode;
+  lastPrompt = '';
+  spawnTides();
+  save();
   refreshHUD();
   resize();
   changeAmbience();
-  toast('Mossglass Cave · the cliffs are keeping little secrets.');
 }
 function leaveCave() {
   mode = 'beach';
-  beach.camera.position.set(12.5, 1.7, 1);
+  state.biome = mode;
+  beach.camera.position.set(13, 1.7, 1);
+  beach.camera.rotation.set(0, Math.PI / 2, 0);
+  lastPrompt = '';
+  save();
   refreshHUD();
   resize();
   changeAmbience();
+}
+function enterMoonpool() {
+  if (!owns(state, 'moonpoolAccess')) return;
+  if (!getCave().moonpoolPassage.canTraverse())
+    return toast('The glowing formation is opening…');
+  const w = getMoonpool();
+  w.camera.position.set(0, 1.7, 5.2);
+  w.camera.rotation.set(-0.06, 0, 0);
+  mode = 'moonpool';
+  state.biome = mode;
+  lastPrompt = '';
+  ensureTides(state);
+  spawnTides();
+  save();
+  refreshHUD();
+  resize();
+  changeAmbience();
+  toast('Hidden Moonpool · a little world made of moonlight ♡');
+}
+function moonpoolRequirements() {
+  const u = UPGRADES.find((u) => u.id === 'moonpoolAccess'),
+    count = caveDiscoveryCount(state);
+  panelShell(
+    'The Hidden Moonpool',
+    'something beautiful is waiting',
+    '<p class="lead">A turquoise shimmer slips between the glowing stones. The formation will open when you are ready.</p><div class="notice">' +
+      (owns(state, 'caveAccess') ? '✓' : '○') +
+      ' Own Cave Access<br>' +
+      (owns(state, 'pick') ? '✓' : '○') +
+      ' Own the Geological Pick<br>' +
+      (count >= 15 ? '✓' : '○') +
+      ' Discover 15 different cave-native treasures · ' +
+      count +
+      '/15<br>' +
+      (state.coins >= 12000 || state.devInfiniteMoney ? '✓' : '○') +
+      ' Moonpool Access · 12,000 sand dollars</div><div class="custom-row"><button data-action="buy" data-id="moonpoolAccess" ' +
+      (purchaseReason(state, u) ? 'disabled' : '') +
+      '>Open the Moonpool · 12,000</button></div>',
+  );
 }
 function scan() {
   if (!owns(state, 'detector'))
@@ -331,7 +446,7 @@ function filterBar() {
 function journal(gallery = false) {
   const inSet = CATALOG.filter((i) => tab === 'All' || i.set === tab),
     done = inSet.filter((i) => state.discovered.includes(i.id)).length;
-  let html = `<p class="lead">${gallery ? 'Developer gallery · every authored model, including undiscovered treasures. Select one to inspect.' : 'Every little find has a story. Keep the ones that make your heart happy. ♡'}</p>${filterBar()}<div class="progress-line"><span>${done} / ${inSet.length} found · ${uniqueCount()}/200 overall</span><span>${Math.round((done / inSet.length) * 100)}%</span></div><div class="progress-track"><div class="progress-fill" style="width:${(done / inSet.length) * 100}%"></div></div>`;
+  let html = `<p class="lead">${gallery ? 'Developer gallery · every authored model, including undiscovered treasures. Select one to inspect.' : 'Every little find has a story. Keep the ones that make your heart happy. ♡'}</p>${filterBar()}<div class="progress-line"><span>${done} / ${inSet.length} found · ${uniqueCount()}/${CATALOG.length} overall</span><span>${Math.round((done / inSet.length) * 100)}%</span></div><div class="progress-track"><div class="progress-fill" style="width:${(done / inSet.length) * 100}%"></div></div>`;
   if (!gallery && tab === 'All' && state.recent.length) {
     html +=
       '<h3>Recently found</h3><div class="recent-row">' +
@@ -353,11 +468,12 @@ function journal(gallery = false) {
           (knownFilter === 'All' ||
             state.discovered.includes(i.id) === (knownFilter === 'Discovered')),
       );
-    html += `<div class="set-header"><h3>${COLLECTION_NAMES[SETS.indexOf(set)]}</h3><span>${group.filter((i) => state.discovered.includes(i.id)).length}/${group.length}</span></div><p class="tiny">${state.claimed.includes(set) ? '✿ Completed · pressed-flower seal earned' : 'Complete this set for 500 sand dollars & a journal seal.'}</p><div class="item-grid">${shown.map((i) => itemCard(i, gallery)).join('')}</div>`;
+    html += `<div class="set-header"><h3>${COLLECTION_NAMES[SETS.indexOf(set)]}</h3><span>${group.filter((i) => state.discovered.includes(i.id)).length}/${group.length}</span></div><p class="tiny">${state.claimed.includes(set) ? (set === 'Moonpool Wonders' ? '✿ Completed · Moonpool aquarium earned' : '✿ Completed · pressed-flower seal earned') : set === 'Moonpool Wonders' ? 'Complete all 30 for the exclusive glowing Moonpool aquarium.' : 'Complete this set for 500 sand dollars & a journal seal.'}</p><div class="item-grid">${shown.map((i) => itemCard(i, gallery)).join('')}</div>`;
   }
+  if (!gallery) html += rewardsHtml(state);
   panelShell(
     gallery ? 'Model Gallery' : 'Collections',
-    gallery ? '200 little sculptures' : 'your keepsake journal',
+    gallery ? CATALOG.length + ' little sculptures' : 'your keepsake journal',
     html,
   );
   $('rarityFilter').onchange = (e) => {
@@ -381,7 +497,7 @@ function inspect(id) {
   panelShell(
     known ? i.name : 'A hidden little wonder',
     i.set,
-    `<div class="inspection-model" data-model="${id}" data-unknown="${!known}" aria-label="Drag to rotate collectible"></div><p class="tiny centered">Drag to turn · slowly rotates on its own</p>${badge(i)}<p class="inspection-story">${known ? i.description : 'A silhouette in your journal, waiting for the day you meet.'}</p><div class="notice">${state.discovered.includes(id) ? 'Discovered' : 'Undiscovered'} · ${count(id)} copies owned · ${onShelf(id)} displayed<br>${i.environment === 'cave' ? 'Mossglass Cave' : 'The little seaside cove'} · ${i.method === 'surface' ? 'shoreline' : UPGRADES.find((u) => u.id === i.method)?.name || 'cave floor'}${known ? `<br>Sale value: ${i.value} sand dollars` : ''}</div><div class="custom-row"><button data-action="journal-back">← Back to ${developer ? 'gallery' : 'journal'}</button>${available(id) ? `<button data-action="place" data-id="${id}">Display in cottage</button>` : ''}</div>`,
+    `<div class="inspection-model" data-model="${id}" data-unknown="${!known}" aria-label="Drag to rotate collectible"></div><p class="tiny centered">Drag to turn · slowly rotates on its own</p>${badge(i)}<p class="inspection-story">${known ? i.description : 'A silhouette in your journal, waiting for the day you meet.'}</p><div class="notice">${state.discovered.includes(id) ? 'Discovered' : 'Undiscovered'} · ${count(id)} copies owned · ${onShelf(id)} displayed<br>${BIOMES[i.environment].name} · ${i.method === 'surface' ? 'shoreline' : UPGRADES.find((u) => u.id === i.method)?.name || (i.environment === 'moonpool' ? 'Moonpool shoreline' : 'cave floor')}${known ? `<br>Sale value: ${i.value} sand dollars` : ''}</div><div class="custom-row"><button data-action="journal-back">← Back to ${developer ? 'gallery' : 'journal'}</button>${available(id) ? `<button data-action="place" data-id="${id}">Display in cottage</button>` : ''}</div>`,
   );
 }
 function backpack() {
@@ -424,6 +540,7 @@ function exchange(which = shopTab) {
   if (which === 'cottage')
     html +=
       '<button class="button-soft" data-action="plain-wall">Plain walls</button> <button class="button-soft" data-action="painting">Open painting studio</button>';
+  if (which === 'cottage') html += rewardsHtml(state, true);
   panelShell('Beach Exchange', 'the little trading stand', html);
 }
 function buy(id) {
@@ -431,9 +548,19 @@ function buy(id) {
   if (!purchase(state, id)) return;
   save();
   shelf.customize(state);
-  beach.setGate(owns(state, 'caveAccess'));
+  if (id === 'caveAccess') beach.setGate(true, true);
+  if (id === 'moonpoolAccess') getCave().moonpoolPassage.setOpen(true, true);
+  ensureTides(state);
+  spawnTides();
+  save();
   refreshHUD();
   refreshShelfUI();
+  if (['caveAccess', 'moonpoolAccess'].includes(id)) {
+    closePanel();
+    if (soundOn) chime(420, 0.8);
+    toast('The stone glides aside. A new little world awaits ♡');
+    return;
+  }
   exchange();
   toast(
     u.name +
@@ -538,6 +665,7 @@ function setShelfView(which = 'main') {
     cabinet: [0, 2.6, 6, 0, 1.8, 0.25],
     sunroom: [8.6, 2.8, 5, 8.6, 2.2, -2.55],
     upper: [-7.1, 7.1, 7, -7.1, 6.6, -2.55],
+    rewards: [3.9, 2.2, 6.8, 3.6, 1.15, 2.5],
     overview: [0, 5, 24, 0, 3.9, -2.48],
   };
   const p = views[which] || views.main;
@@ -581,6 +709,7 @@ function sleepUntilMorning() {
   requestAnimationFrame(() => $('sleepScreen').classList.add('active'));
   setTimeout(() => {
     advanceDay(state);
+    state.biome = 'beach';
     spawnTides();
     save();
     beach.camera.position.set(0, 1.7, 2);
@@ -651,7 +780,9 @@ function openDeveloperMenu() {
 }
 function resetDeveloperSave() {
   if (loaded.preview || loaded.error) {
-    toast('Developer reset is unavailable in preview mode or while saving is blocked.');
+    toast(
+      'Developer reset is unavailable in preview mode or while saving is blocked.',
+    );
     return openDeveloperMenu();
   }
   // Take a separate local backup before touching the active collection.
@@ -680,6 +811,7 @@ function resetDeveloperSave() {
   beach.camera.position.set(0, 1.7, 2);
   beach.camera.rotation.set(0, 0, 0);
   beach.setGate(false);
+  if (cave) cave.moonpoolPassage.setOpen(false);
   spawnTides();
   shelf.customize(state);
   shelf.clearDisplay();
@@ -700,12 +832,12 @@ function help() {
   panelShell(
     'How to play',
     'a very little guide',
-    '<p class="lead">Explore → collect → keep or sell → decorate → sleep → a new tide. No timer, no pressure.</p><div class="keys"><kbd>WASD</kbd><span>Wander · Shift to walk faster</span><kbd>Mouse</kbd><span>Click the world to look around</span><kbd>E</kbd><span>Collect, visit the exchange, or enter the cave</span><kbd>F</kbd><span>Scan with your detector</span><kbd>B / J / H</kbd><span>Backpack / journal / cottage</span><kbd>Q / R</kbd><span>Turn the selected shelf treasure</span><kbd>Esc</kbd><span>Close a menu or leave your cottage</span></div><p class="lead">Only sleep refreshes discoveries. New tools open pools on the next tide. Complete each collection for 500 sand dollars. The cave gate needs 30 unique finds, the reinforced trowel and 8,000 sand dollars.</p><div class="custom-row"><button data-action="export">Export save</button><button data-action="gallery">Developer model gallery</button></div><p class="tiny">Saves live in this browser, on this site. Export a copy before changing browsers or clearing storage.</p>',
+    '<p class="lead">Explore → collect → keep or sell → decorate → sleep → a new tide. No timer, no pressure.</p><div class="keys"><kbd>WASD</kbd><span>Wander · Shift to walk faster</span><kbd>Mouse</kbd><span>Click the world to look around</span><kbd>E</kbd><span>Collect, visit the exchange, or enter the cave</span><kbd>F</kbd><span>Scan with your detector</span><kbd>B / J / H</kbd><span>Backpack / journal / cottage</span><kbd>Q / R</kbd><span>Turn the selected shelf treasure</span><kbd>Esc</kbd><span>Close a menu or leave your cottage</span></div><p class="lead">Only sleep refreshes discoveries. New tools open pools on the next tide. Complete the original collections for 500 sand dollars. Unique discoveries at 50, 100, 150, 200 and 230 earn exclusive cottage decorations. Complete Moonpool Wonders for a glowing aquarium. The cave gate needs 30 unique finds, the reinforced trowel and 8,000 sand dollars. At its far end, Moonpool Access needs Cave Access, the Geological Pick, 15 different cave-native finds and 12,000 sand dollars.</p><div class="custom-row"><button data-action="export">Export save</button><button data-action="gallery">Developer model gallery</button></div><p class="tiny">Saves live in this browser, on this site. Export a copy before changing browsers or clearing storage.</p>',
   );
 }
 function resize() {
   renderer.setSize(innerWidth, innerHeight);
-  for (const w of [beach, shelf, cave].filter(Boolean)) {
+  for (const w of [beach, shelf, cave, moonpool].filter(Boolean)) {
     w.camera.aspect = innerWidth / innerHeight;
     w.camera.updateProjectionMatrix();
   }
@@ -716,7 +848,7 @@ $('startButton').onclick = () => {
   started = true;
   $('overlay').classList.add('hidden');
   refreshHUD();
-  renderer.domElement.requestPointerLock?.();
+  captureLook();
   toast(
     loaded.error ||
       'The tide is lovely today. Find something you want to keep ♡',
@@ -768,6 +900,65 @@ $('panelContent').addEventListener('click', (e) => {
   if (!b || b.disabled) return;
   const id = b.dataset.id,
     a = b.dataset.action;
+  if (a === 'dev-preview') {
+    location.search = '?preview=' + id;
+    return;
+  }
+  if (a === 'dev-exit-preview') {
+    location.search = '';
+    return;
+  }
+  if (a === 'dev-grant-biomes') {
+    if (loaded.error)
+      return toast('Saving is paused to protect your collection.');
+    const previous = JSON.stringify(state);
+    grantBiomeAccess(state);
+    claimDecorRewards(state);
+    if (!save()) {
+      for (const key of Object.keys(state)) delete state[key];
+      Object.assign(state, JSON.parse(previous));
+      return toast('Could not save. Your previous progress was kept.');
+    }
+    beach.setGate(true);
+    getCave().moonpoolPassage.setOpen(true);
+    spawnTides();
+    shelf.customize(state);
+    refreshHUD();
+    openDeveloperMenu();
+    return;
+  }
+  if (a === 'dev-travel') {
+    if (mode === 'shelf') leaveShelf();
+    closePanel();
+    if (id === 'moonpool') {
+      enterMoonpool();
+      getMoonpool().camera.position.set(0, 1.7, 1.3);
+    }
+    else if (id === 'cave' || id === 'passage') {
+      enterCave();
+      if (id === 'passage') {
+        getCave().camera.position.set(0, 1.7, -20);
+        getCave().camera.rotation.set(0, 0, 0);
+      }
+    } else {
+      leaveCave();
+      beach.camera.position.set(
+        id === 'gate' ? 12.7 : 0,
+        1.7,
+        id === 'gate' ? 1 : 2,
+      );
+      beach.camera.rotation.set(0, id === 'gate' ? -Math.PI / 2 : 0, 0);
+    }
+    return;
+  }
+  if (a === 'reward-toggle') {
+    if (toggleReward(state, id)) {
+      shelf.customize(state);
+      save();
+      exchange('cottage');
+    }
+    return;
+  }
   if (a === 'dev-toggle-money') {
     if (loaded.preview || loaded.error) {
       toast('Developer changes cannot be saved in preview or recovery mode.');
@@ -781,7 +972,11 @@ $('panelContent').addEventListener('click', (e) => {
     }
     refreshHUD();
     openDeveloperMenu();
-    toast(state.devInfiniteMoney ? 'Infinite testing money enabled ∞' : 'Normal money restored.');
+    toast(
+      state.devInfiniteMoney
+        ? 'Infinite testing money enabled ∞'
+        : 'Normal money restored.',
+    );
     return;
   }
   if (a === 'dev-reset-prompt') {
@@ -840,15 +1035,25 @@ $('panelContent').addEventListener('click', (e) => {
 });
 $('panelContent').addEventListener('input', (e) => {
   if (e.target.id !== 'devResetInput') return;
-  const btn = $('panelContent').querySelector('[data-action="dev-reset-confirm"]');
+  const btn = $('panelContent').querySelector(
+    '[data-action="dev-reset-confirm"]',
+  );
   if (btn) btn.disabled = e.target.value.trim().toUpperCase() !== 'RESET';
 });
 // Secret typed sequence; no visible access button in the ordinary game UI.
 let devSequenceProgress = 0;
 let devSequenceTime = 0;
 function devSequenceKey(e) {
-  if (!started || sleeping || e.repeat || e.ctrlKey || e.altKey || e.metaKey ||
-      e.target.matches('input,select,textarea,[contenteditable="true"]')) return false;
+  if (
+    !started ||
+    sleeping ||
+    e.repeat ||
+    e.ctrlKey ||
+    e.altKey ||
+    e.metaKey ||
+    e.target.matches('input,select,textarea,[contenteditable="true"]')
+  )
+    return false;
   const key = e.key.toLowerCase();
   if (key.length !== 1 || !/^[a-z]$/.test(key)) {
     devSequenceProgress = 0;
@@ -874,6 +1079,21 @@ function devSequenceKey(e) {
   }
   return false;
 }
+function enableDragLook() {
+  if (!dragLook) toast('Drag the world to look around · WASD to wander');
+  dragLook = true;
+}
+function captureLook() {
+  renderer.domElement.focus();
+  if (dragLook) return;
+  try {
+    if (!renderer.domElement.requestPointerLock) return enableDragLook();
+    renderer.domElement.requestPointerLock()?.catch(enableDragLook);
+  } catch {
+    enableDragLook();
+  }
+}
+document.addEventListener('pointerlockerror', enableDragLook);
 renderer.domElement.onclick = () => {
   if (
     started &&
@@ -881,14 +1101,14 @@ renderer.domElement.onclick = () => {
     !activePanel &&
     !document.pointerLockElement
   )
-    renderer.domElement.requestPointerLock?.();
+    captureLook();
 };
 document.addEventListener('mousemove', (e) => {
   if (
     mode === 'shelf' ||
     !started ||
     activePanel ||
-    document.pointerLockElement !== renderer.domElement
+    (document.pointerLockElement !== renderer.domElement && !lookDragging)
   )
     return;
   const camera = currentWorld().camera;
@@ -948,6 +1168,11 @@ function pointerRay(e) {
   raycaster.setFromCamera(mouse, shelf.camera);
 }
 renderer.domElement.addEventListener('pointerdown', (e) => {
+  if (started && mode !== 'shelf' && !activePanel && dragLook) {
+    lookDragging = true;
+    renderer.domElement.setPointerCapture(e.pointerId);
+    return;
+  }
   if (mode !== 'shelf' || activePanel) return;
   pointerRay(e);
   const hit = raycaster
@@ -987,6 +1212,7 @@ renderer.domElement.addEventListener('pointermove', (e) => {
   }
 });
 function stopDrag() {
+  lookDragging = false;
   if (!dragging) return;
   dragging = false;
   const p = state.shelf.find((p) => p.uid === selectedUid);
@@ -1001,7 +1227,7 @@ function move(dt) {
     mode === 'shelf' ||
     activePanel ||
     sleeping ||
-    document.pointerLockElement !== renderer.domElement
+    (document.pointerLockElement !== renderer.domElement && !dragLook)
   )
     return;
   let f =
@@ -1017,23 +1243,20 @@ function move(dt) {
     p = camera.position;
   const nx = p.x - Math.sin(a) * f * speed + Math.cos(a) * s * speed,
     nz = p.z - Math.cos(a) * f * speed - Math.sin(a) * s * speed;
-  if (mode === 'cave') {
-    p.x = clamp(nx, -6.2, 6.2);
-    p.z = clamp(nz, -23, 4);
-    return;
-  }
-  if (nx > 14.5 && Math.abs(nz - 1) < 2) {
-    if (owns(state, 'caveAccess')) enterCave();
-    return;
-  }
-  if (nx > 14.5 || nx < -14.5 || nz < -14 || nz > 18) return;
-  if (
-    (nx > -11.2 && nx < -3.8 && nz > 9.5) ||
-    (nx > 4.7 && nx < 10.3 && nz > 10)
-  )
-    return;
-  p.x = nx;
-  p.z = nz;
+  const step = stepThrough(
+    mode,
+    p,
+    { x: nx, z: nz },
+    {
+      beachOpen: beach.entrance.canTraverse(),
+      moonpoolOpen: cave?.moonpoolPassage.canTraverse(),
+    },
+  );
+  if (step.to === 'beach') return leaveCave();
+  if (step.to === 'cave') return enterCave(step.from);
+  if (step.to === 'moonpool') return enterMoonpool();
+  p.x = step.x;
+  p.z = step.z;
 }
 let soundOn = false,
   audioCtx,
@@ -1147,8 +1370,20 @@ if (new URLSearchParams(location.search).has('gallery')) {
 if (loaded.preview) {
   started = true;
   $('overlay').classList.add('hidden');
-  if (preview === 'cave') enterCave();
-  else enterShelf();
+  if (preview === 'moonpool') enterMoonpool();
+  else if (['cave', 'passage-locked', 'passage-ready'].includes(preview)) {
+    enterCave();
+    if (preview.startsWith('passage-')) getCave().camera.position.z = -20;
+  } else if (preview?.startsWith('entrance-')) {
+    mode = 'beach';
+    beach.camera.position.set(12.7, 1.7, 1);
+    beach.camera.rotation.set(0, -Math.PI / 2, 0);
+  } else enterShelf();
+}
+if (!loaded.preview && !new URLSearchParams(location.search).has('gallery')) {
+  if (state.biome === 'moonpool' && owns(state, 'moonpoolAccess'))
+    enterMoonpool();
+  else if (state.biome === 'cave' && owns(state, 'caveAccess')) enterCave();
 }
 if (loaded.error) setTimeout(() => toast(loaded.error), 200);
 function animate() {
@@ -1163,14 +1398,17 @@ function animate() {
       t,
       owns(state, 'detector') && performance.now() < scanUntil,
       owns(state, 'professional') ? 30 : owns(state, 'coil') ? 20 : 12,
+      dt,
     );
   if (mode === 'cave') {
-    cave.update(t, owns(state, 'lantern'));
+    cave.update(t, owns(state, 'lantern'), dt);
     if (soundOn && t > nextDrip) {
       caveDrip();
       nextDrip = t + 4 + Math.random() * 5;
     }
   }
+  if (mode === 'moonpool') moonpool.update(t);
+  if (mode === 'shelf') shelf.update(t);
   if (started && mode !== 'shelf' && !sleeping && !activePanel) {
     const target = nearTarget(),
       prompt = target?.name || '';

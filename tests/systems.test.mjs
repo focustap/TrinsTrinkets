@@ -32,9 +32,9 @@ import {
 } from '../src/inventory.js';
 
 test('exact catalog counts, permanent original IDs, complete authored definitions', () => {
-  assert.equal(CATALOG.length, 200);
-  assert.equal(new Set(CATALOG.map((i) => i.id)).size, 200);
-  assert.equal(new Set(CATALOG.map((i) => i.name)).size, 200);
+  assert.equal(CATALOG.length, 230);
+  assert.equal(new Set(CATALOG.map((i) => i.id)).size, 230);
+  assert.equal(new Set(CATALOG.map((i) => i.name)).size, 230);
   SETS.forEach((s, n) =>
     assert.equal(
       CATALOG.filter((i) => i.set === s).length,
@@ -50,15 +50,16 @@ test('exact catalog counts, permanent original IDs, complete authored definition
     assert.ok(i.visual.variant > 0);
     assert.ok(i.visual.motif);
     assert.equal(i.collection, i.set);
-    assert.ok(['beach', 'cave'].includes(i.environment));
+    assert.ok(['beach', 'cave', 'moonpool'].includes(i.environment));
     assert.ok(
       i.method === 'surface' ||
         i.method === 'cave' ||
+        i.method === 'moonpool' ||
         UPGRADES.some((u) => u.id === i.method),
     );
   }
   assert.ok(new Set(CATALOG.map((i) => i.type)).size >= 30);
-  assert.equal(new Set(CATALOG.map((i) => i.description)).size, 200);
+  assert.equal(new Set(CATALOG.map((i) => i.description)).size, 230);
 });
 test('six mutually exclusive rarity tiers match the exact base distribution', () => {
   assert.ok(
@@ -186,7 +187,7 @@ test('v1 migration preserves money, inventory, discoveries, tools, day, tide and
   assert.ok(canDiscover(s, 'detector'));
   assert.ok(canDiscover(s, 'probe'));
   assert.deepEqual(migrateSave(s), s);
-  assert.equal(s.version, 2);
+  assert.equal(s.version, 3);
 });
 test('invalid and future saves are protected; storage failure never destroys original', () => {
   const store = memoryStorage();
@@ -276,7 +277,7 @@ test('every treasure has a reachable discovery pool with maximum equipment', () 
   const s = fresh();
   s.equipment = UPGRADES.map((u) => u.id);
   const available = new Set();
-  for (const environment of ['beach', 'cave'])
+  for (const environment of ['beach', 'cave', 'moonpool'])
     for (let j = 0; j < 50; j++) {
       s.day = j + 1;
       const finds = generateTide(s, environment, seeded(j + 1));

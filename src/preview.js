@@ -46,7 +46,21 @@ export function previewState(kind) {
     });
   }
   s.equipment = UPGRADES.map((u) => u.id);
-  s.purchases = kind === 'cottage' ? DECOR.map((u) => u.id) : ['paintingKit'];
+  if (kind === 'entrance-locked') s.equipment = [];
+  if (['passage-locked', 'passage-ready'].includes(kind))
+    s.equipment = s.equipment.filter(
+      (id) => !['moonpoolAccess', 'pearlBrush', 'crystalScoop'].includes(id),
+    );
+  if (['moonpool', 'passage-ready'].includes(kind))
+    s.discovered.push(
+      ...CATALOG.filter((i) => i.environment === 'cave')
+        .slice(0, 15)
+        .map((i) => i.id),
+    );
+  if (kind === 'milestones') s.discovered = CATALOG.map((i) => i.id);
+  s.purchases = ['cottage', 'milestones'].includes(kind)
+    ? DECOR.map((u) => u.id)
+    : ['paintingKit'];
   s.artwork = Array.from({ length: 1024 }, (_, j) => {
     const x = j % 32,
       y = Math.floor(j / 32);
@@ -56,11 +70,11 @@ export function previewState(kind) {
     return '#b6d9df';
   });
   s.shelf = shelfSlots(s)
-    .slice(0, kind === 'cottage' ? 70 : 8)
+    .slice(0, ['cottage', 'milestones'].includes(kind) ? 70 : 8)
     .map((p, j) => ({
       ...p,
       uid: j + 1,
-      itemId: CATALOG[(j * 7) % 200].id,
+      itemId: CATALOG[(j * 7) % CATALOG.length].id,
       rotation: j * 0.13,
     }));
   return s;
