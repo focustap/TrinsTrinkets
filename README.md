@@ -1,43 +1,90 @@
 # Trin's Trinkets 🐚
 
-A cozy, single-player 3D beachcombing and collection game made with Three.js.
+A cozy, single-player Three.js beachcombing game about finding beautiful little things and making a cottage feel like home. No account, backend, paid API, or multiplayer.
 
-Explore a small sheltered seaside cove, gather a limited selection of treasures each day, sell duplicates at the self-serve beach exchange, work from a shovel up to a metal detector, complete collections, and decorate a cottage display room. Go to sleep in the cottage to wake up to a fresh tide of finds.
+## Play locally
 
-## Run locally
+Use Node.js 20.19+ or 22 LTS:
 
-Node.js 20 or newer:
-
-```bash
-npm install
+```sh
+npm ci
 npm run dev
 ```
 
-Open the URL Vite prints.
+```sh
+npm test          # catalog, rarity, progression, migration, tides, inventory and model/shelf geometry
+npm run balance  # 1,200 reproducible economy simulations
+npm run build
+npm run preview  # smoke-test the production bundle
+```
+
+## The little daily loop
+
+Explore → collect → keep or sell → decorate → sleep → a new tide.
+
+The beach has nine shoreline discoveries, five buried sites, and four specialized sites. Tools open new pools instead of adding a flood of finds. The cave has twelve daily deposits. Item identities, positions and remaining sites save immediately; refreshing cannot reroll a tide. Tools affect future tides, while existing compatible sites can be collected immediately.
+
+There are exactly **200 treasures**, including every original item ID: 40 shells, 26 glass/gems, 34 jewelry/charms, 28 ocean wonders, 24 keepsakes, 28 cave minerals and 20 cave fossils/relics. Every treasure has its own story and visual recipe. Models use shared sculpting families and cached geometry/materials.
 
 ## Controls
 
-- **WASD** to wander; **mouse** to look
-- **E** to collect a nearby find or interact with a station
-- **F** to scan with an owned metal detector
-- **J** collection journal, **B** backpack, **H** cottage and display shelf
-- **Sleep until morning** from the cottage to advance a day and bring in the next tide
-- **Esc** to unlock the pointer or close the current panel
-- In shelf mode, drag treasures to arrange them; **Q / R** to rotate selected treasure.
+- **WASD** move, **Shift** walk faster, click the world to capture the mouse.
+- **E** collect or interact; **F** scan with an owned detector.
+- **J** journal, **B** backpack, **H** cottage; **Esc** closes menus or leaves the cottage.
+- The quickbar opens the exchange from anywhere.
+- In the cottage, drag an item to snap it to a vacant shelf space. **Q / R** turns the selected piece; **Remove selected** returns it to the backpack.
+- Scroll to zoom, right-drag to pan, or choose a focused shelf view.
+- Buy the painting kit to paint with 16 colors, four brush sizes, an eraser, undo/redo, and a locally saved wall texture.
 
-All progress—including the current day and the remaining finds on the beach—is saved in the browser with localStorage. Reloading does not respawn treasures; only sleeping does. No account, backend, character models, purchases, or multiplayer required.
+## Progression
 
-## Deploy
+The equipment ladder runs from a 100-dollar pouch and 175-dollar shovel to the 6,500-dollar detector, then the 12,000-dollar coil and 18,000-dollar professional detector. Brush, sifter and scoop are optional branches. Original shovel/detector owners keep their tools and scanning functionality.
 
-GitHub Actions contains a Pages build workflow. Enable **Settings → Pages → Build and deployment → GitHub Actions** on this repository, then push to main or run the workflow manually.
+The cave gate is on the east side of the beach. It opens after 30 unique discoveries, ownership of the reinforced trowel, and purchasing cave access for 8,000 dollars. Lantern and pick upgrades reveal further deposits. Cave Mythics require cave access and the geological pick.
+
+The cottage can grow from 18 to **96 display spaces**, with additional shelves, a glass cabinet, a sunroom and a deluxe gallery. Paint, wallpaper, floors, wood finishes, rugs, cushions, lamps, plants and ornaments remain owned permanently. Completed collections award a journal seal and 500 sand dollars once each.
+
+## Rarity and economy
+
+`src/rarity.js` owns the base probabilities: Common 52.55%, Uncommon 21.40%, Rare 20%, Epic 5%, Legendary 1%, Mythic 0.05%. Roll the eligible tier first, then an item within it. Missing tiers redistribute proportionally; advanced discovery pools retain ordinary finds so exclusive Mythics cannot become common. There are no guaranteed Mythic drops or pity mechanics.
+
+The seeded simulation assumes collecting all reachable sites each day, buying the specified equipment path, and selling a percentage of finds. Across 400 runs per scenario:
+
+| Scenario                                | Mean days to detector | 10th–90th percentile |
+| --------------------------------------- | --------------------: | -------------------: |
+| Keep 25%; buy optional brush and sifter |                  25.4 |                23–28 |
+| Keep 40%; buy optional brush and sifter |                  31.4 |                28–35 |
+| Sell everything; direct equipment route |                  18.8 |                17–21 |
+
+These are balance estimates, not a timer or a promise about any player's pace. Keeping more favorites or buying cottage decorations naturally changes the pace.
+
+## Saves
+
+The browser key remains **`trins-trinkets-save-v1`**, now with version 2 data and a versioned migration. Original money, inventory, discoveries, claims, tools, day, remaining tide, cottage settings and shelf coordinates are preserved. Expanded positions are not truncated to 18. Unknown IDs/fields are retained for future compatibility.
+
+A copy of the pre-migration save is retained under `trins-trinkets-save-v1-backup`. Corrupt/newer saves pause writing instead of being overwritten. Storage errors show a persistent warning; **How to play → Export save** downloads the in-memory collection as JSON. Saves belong to the browser and origin; keep an export before clearing storage or switching browsers. The game never clears localStorage automatically.
+
+## Visual inspection
+
+Append **`?gallery=1`** to the game URL, or open **How to play → Developer model gallery**. Filter all 200 rotating models by collection, rarity and discovery status. Select one for enlarged inspection; drag the model to turn it manually. The gallery does not grant discoveries or inventory.
+
+Developer preview URLs use disposable in-memory fixtures and **never read or write the player save**:
+
+- `?preview=cottage`: 70 displayed pieces, every furniture upgrade, and sample wall artwork.
+- `?preview=cave`: unlocked cave, lantern, pick and cave deposits.
+- `?preview=legacy`: migrated original tools and shelf coordinates, sample inventory and two fixed beach finds for interaction testing.
 
 ## Project structure
 
-- `src/world.js`: procedural beach, cottage interior, pickable 3D finds, and decorative objects.
-- `src/catalog.js`: items and rarity / tool progression.
-- `src/main.js`: game state, interactions, collection / shop UI, shelf customization and saves.
-- `src/style.css`: cozy UI.
+- `catalog.js`, `legacy-catalog.js`, `lore.js`: permanent IDs, visual recipes, collection metadata and 200 handwritten stories.
+- `artwork.js`, `treasures.js`: sculpted models, cached templates and normalized shelf footprints.
+- `rarity.js`, `progression.js`, `inventory.js`, `tide.js`: weighted drops, purchases, selling/rewards and daily state.
+- `save.js`: protected loading, migration, validation, backup and saving.
+- `world.js`, `cave.js`, `shelves.js`: beach/cottage/cave geometry, furniture and collision-free shelf slots.
+- `museum.js`, `painting.js`: one shared preview renderer and the painting editor.
+- `main.js`, `style.css`: gameplay orchestration, controls and cozy interface.
+- `preview.js`: transient visual QA fixtures.
 
-## Daily beach loop
+## GitHub Pages
 
-Each morning, the tide leaves a small batch of nine surface finds, five dig sites, and four buried detector signals. Dig and detector discoveries become accessible when those tools are purchased. A day's finds disappear when collected and stay gone on refresh. Sleeping in the cottage advances the day and refreshes the beach; collection and room decorations carry over.
+The existing relative Vite base is retained. `.github/workflows/pages.yml` installs from the lockfile, tests, builds and deploys on pushes to `main` or a manual workflow dispatch. `check.yml` tests and builds pull requests. Pages must use **GitHub Actions** as its build source. The Three.js vendor chunk is cached separately from authored game code.
