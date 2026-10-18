@@ -33,3 +33,9 @@ body.in-shelf .mission,body.in-shelf .crosshair,body.in-shelf .interaction,body.
 .sleep-moon{font-size:75px;color:#f6d9a5;margin-bottom:12px}
 .sleep-content small{display:block;margin-top:15px;color:#c7bfd0;text-transform:uppercase;font:700 12px 'DM Sans',Arial,sans-serif;letter-spacing:.22em}
 @media(max-width:620px){.day-indicator{padding:9px 10px;font-size:11px}.day-indicator strong{font-size:16px}.shelf-actions{margin-top:6px}.shelf-controls{bottom:83px}}
+
+
+/* Save reassurance without distracting from the beach */
+.save-indicator{align-self:center;color:#688b78;background:#fffaf1d9;box-shadow:0 6px 15px #64544a15;border:1px solid #fff8;border-radius:99px;padding:8px 11px;white-space:nowrap;font-size:10px;font-weight:800;letter-spacing:.025em}
+.save-indicator[data-error="true"]{color:#b45e64;background:#fff1ed}
+@media(max-width:760px){.save-indicator{position:absolute;top:79px;right:13px;font-size:9px;padding:6px 9px}}
