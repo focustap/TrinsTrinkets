@@ -1,508 +1,1067 @@
 import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import './style.css';
-import {CATALOG,ITEMS,SETS,UPGRADES,SHOP_COLORS,WOODS,pickRandom} from './catalog.js';
-import {createBeachScene,createShelfScene} from './world.js';
+import {
+  CATALOG,
+  ITEMS,
+  SETS,
+  COLLECTION_NAMES,
+  UPGRADES,
+  SHOP_COLORS,
+  WOODS,
+} from './catalog.js';
+import { RARITIES } from './rarity.js';
+import {
+  DECOR,
+  owns,
+  purchase,
+  purchaseReason,
+  canDiscover,
+} from './progression.js';
+import { loadSave, writeSave } from './save.js';
+import { ensureTides, advanceDay, takeFind } from './tide.js';
+import { shelfSlots, nearestSlot, slotFree } from './shelves.js';
+import { createBeachScene, createShelfScene } from './world.js';
+import { createCaveScene } from './cave.js';
+import { mountMuseum, clearMuseum, renderMuseum } from './museum.js';
+import { openPainting } from './painting.js';
+import { previewState } from './preview.js';
+import { sellTreasure, sellExtras, claimCompletedSets } from './inventory.js';
 
-const $ = id => document.getElementById(id);
-const KEY = 'trins-trinkets-save-v1';
-const clampDay = day=>Math.max(1,Math.min(99999,day));
-const fresh = () => ({coins:0,bag:{},discovered:[],claimed:[],shovel:false,detector:false,shelf:[],wall:'cream',wood:'maple',lights:true,day:1,beachFinds:null});
-function load(){
-  try {
-    const s=JSON.parse(localStorage.getItem(KEY)||'null');
-    if(!s||typeof s!=='object')return fresh();
-    const d=fresh();
-    d.coins=Number.isFinite(s.coins)?Math.max(0,Math.floor(s.coins)):0;
-    for(const item of CATALOG)if(Number.isFinite(s.bag?.[item.id]))
-      d.bag[item.id]=Math.max(0,Math.min(100000,Math.floor(s.bag[item.id])));
-    d.discovered=Array.isArray(s.discovered)?s.discovered.filter(id=>!!ITEMS[id]):[];
-    d.claimed=Array.isArray(s.claimed)?s.claimed.filter(id=>SETS.includes(id)):[];
-    d.shovel=!!s.shovel;d.detector=!!s.detector;
-    d.day=Number.isSafeInteger(s.day)?clampDay(s.day):1;
-    d.beachFinds=Array.isArray(s.beachFinds)?
-      s.beachFinds.filter(f=>ITEMS[f?.itemId]&&['surface','shovel','detector'].includes(f.method)&&
-        Number.isFinite(f.x)&&Number.isFinite(f.z)&&f.x>=-13.5&&f.x<=13.5&&f.z>=-13&&f.z<=6.5&&
-        ITEMS[f.itemId].method===f.method&&typeof f.uid==='string')
-        .slice(0,18).map(f=>({uid:f.uid,itemId:f.itemId,method:f.method,x:f.x,z:f.z})):null;
-    d.wall=SHOP_COLORS[s.wall]?s.wall:'cream';d.wood=WOODS[s.wood]?s.wood:'maple';d.lights=s.lights!==false;
-    d.shelf=Array.isArray(s.shelf)?s.shelf.filter(p=>ITEMS[p.itemId]&&Number.isFinite(p.x)&&Number.isFinite(p.y)&&Number.isFinite(p.z)&&Number.isFinite(p.uid)).slice(0,18).map(p=>({
-      uid:p.uid,itemId:p.itemId,x:Math.max(-2.28,Math.min(2.28,p.x)),
-      y:[1.18,2.13,3.07].reduce((a,b)=>Math.abs(b-p.y)<Math.abs(a-p.y)?b:a),
-      z:Math.max(-2.94,Math.min(-2.42,p.z)),rotation:Number.isFinite(p.rotation)?p.rotation:0
-    })):[];
-    return d;
-  }catch{return fresh();}
+const $ = (id) => document.getElementById(id),
+  clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+let storage;
+try {
+  storage = window.localStorage;
+} catch {
+  storage = {
+    getItem() {
+      throw Error('Browser storage is disabled');
+    },
+  };
 }
-const state=load();
-// Stable save key deliberately unchanged: existing browser collections are preserved.
-const save=()=>{
-  try{
-    localStorage.setItem(KEY,JSON.stringify(state));
-    const status=$('saveStatus');
-    if(status){status.textContent='✓ saved locally';status.dataset.error='false';}
+const preview = new URLSearchParams(location.search).get('preview');
+const loaded = ['cottage', 'cave', 'legacy'].includes(preview)
+    ? {
+        state: previewState(preview),
+        error: null,
+        original: null,
+        preview: true,
+      }
+    : loadSave(storage),
+  state = loaded.state;
+let toastTimer,
+  paintingCleanup = null;
+function save() {
+  if (loaded.preview) {
+    $('saveStatus').textContent = 'developer preview · unsaved';
     return true;
-  }catch{
-    const status=$('saveStatus');
-    if(status){status.textContent='⚠ save unavailable';status.dataset.error='true';}
-    return false;
   }
+  const result = writeSave(storage, state, {
+    blocked: !!loaded.error,
+    original: loaded.original,
+  });
+  $('saveStatus').textContent = result.ok
+    ? '✓ saved locally'
+    : '⚠ export to keep progress';
+  $('saveStatus').dataset.error = String(!result.ok);
+  $('saveStatus').title =
+    result.error || 'Your collection saves automatically in this browser';
+  return result.ok;
+}
+const beach = createBeachScene(),
+  shelf = createShelfScene();
+let cave;
+const getCave = () => cave || (cave = createCaveScene());
+shelf.customize(state);
+beach.setGate(owns(state, 'caveAccess'));
+const renderer = new THREE.WebGLRenderer({
+  antialias: true,
+  powerPreference: 'high-performance',
+});
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.75));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.24;
+$('game').append(renderer.domElement);
+renderer.domElement.tabIndex = 0;
+const cottageControls = new OrbitControls(shelf.camera, renderer.domElement);
+cottageControls.enabled = false;
+cottageControls.enableRotate = false;
+cottageControls.minDistance = 2;
+cottageControls.maxDistance = 35;
+cottageControls.zoomToCursor = true;
+cottageControls.mouseButtons = {
+  LEFT: null,
+  MIDDLE: THREE.MOUSE.DOLLY,
+  RIGHT: THREE.MOUSE.PAN,
 };
-const beach=createBeachScene(),shelf=createShelfScene();
-shelf.setWall(SHOP_COLORS[state.wall]);shelf.setWood(WOODS[state.wood]);shelf.setLights(state.lights);
-
-const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
-renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
-renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.24;
-$('game').appendChild(renderer.domElement);
-renderer.domElement.tabIndex=0;
-const raycaster=new THREE.Raycaster(),mouse=new THREE.Vector2();
-const clock=new THREE.Clock();
-let mode='beach',started=false,activePanel='',tab='All',near=null,toastTimer=0,scanUntil=0,selectedUid=null,dragging=false,dragX=0,dragY=0,sleeping=false;
-const keys=new Set();
-const yAxis=new THREE.Vector3(0,1,0);
-const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
-const count=id=>state.bag[id]||0;
-const onShelf=id=>state.shelf.filter(p=>p.itemId===id).length;
-const available=id=>Math.max(0,count(id)-onShelf(id));
-const ownedCount=()=>CATALOG.reduce((n,i)=>n+count(i.id),0);
-const uniqueCount=()=>new Set(state.discovered).size;
-const money=n=>n.toLocaleString('en-US');
-const iconFor=i=>({
- shell:'🐚',scallop:'🐚',conch:'🐚',pearl:'🦪',glass:'💎',bracelet:'📿',charm:'💗',ring:'💍',
- coin:'🪙',key:'🗝️',starfish:'⭐',fossil:'🌀',tooth:'🦈',bottle:'🍾'
-})[i.type]||'✧';
-function refreshHUD(){
-  $('balance').textContent=money(state.coins);
-  $('dayNumber').textContent=state.day;
-  const u=uniqueCount();
-  const remaining=state.beachFinds?.filter(f=>f.method==='surface' ||
-    (f.method==='shovel'&&state.shovel)||(f.method==='detector'&&state.detector)).length||0;
-  $('mission').textContent=remaining===0?'The beach is quiet now · sleep for a fresh tide 🌙':
-    !u?'Find your first little treasure ✦':!state.shovel?
-    'Find treasures, then buy a shovel ✿':!state.detector?
-    'Look for small sand mounds · '+remaining+' finds left':
-    'Scan with F · '+remaining+' finds left today ✦';
+const clock = new THREE.Clock(),
+  keys = new Set(),
+  raycaster = new THREE.Raycaster(),
+  mouse = new THREE.Vector2(),
+  yAxis = new THREE.Vector3(0, 1, 0);
+let mode = 'beach',
+  started = false,
+  activePanel = '',
+  tab = 'All',
+  rarityFilter = 'All',
+  knownFilter = 'All',
+  selectedUid = null,
+  sleeping = false,
+  scanUntil = 0,
+  dragging = false,
+  dragStart = null,
+  lastPrompt = '';
+const currentWorld = () => (mode === 'cave' ? getCave() : beach);
+const count = (id) => state.bag[id] || 0,
+  onShelf = (id) => state.shelf.filter((p) => p.itemId === id).length,
+  available = (id) => Math.max(0, count(id) - onShelf(id));
+const uniqueCount = () =>
+  CATALOG.filter((i) => state.discovered.includes(i.id)).length;
+const money = (n) => n.toLocaleString('en-US');
+const iconFor = (i) =>
+  ({
+    Shells: '🐚',
+    'Sea Glass': '💎',
+    Jewelry: '📿',
+    'Ocean Wonders': '🪸',
+    'Lost Treasures': '🗝️',
+    'Cave Crystals': '✧',
+    'Cave Relics': '🌀',
+  })[i.set] || '✧';
+const badge = (i) =>
+  `<span class="rarity-badge" style="--rarity:${RARITIES[i.rarity].color}">${i.rarity}</span>`;
+function toast(message) {
+  $('toast').textContent = message;
+  $('toast').classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $('toast').classList.remove('show'), 3800);
 }
-function toast(message){
-  const el=$('toast');el.textContent=message;el.classList.add('show');
-  clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),2800);
+function refreshHUD() {
+  $('balance').textContent = money(state.coins);
+  $('dayNumber').textContent = state.day;
+  const pool = mode === 'cave' ? state.caveFinds : state.beachFinds,
+    remaining = pool?.filter((f) => canDiscover(state, f.method)).length || 0;
+  $('mission').textContent =
+    `${mode === 'cave' ? 'Mossglass Cave' : 'The little cove'} · ${remaining} reachable finds · ${uniqueCount()}/200 treasures`;
 }
-// The tide is fixed for each day and persisted. Reloading cannot generate free new loot.
-function spawnOne(method) {
-  const item=pickRandom(method);
-  let x,z,attempt=0;
-  do {
-    x=(Math.random()-.5)*25.5;z=-12.5+Math.random()*19;attempt++;
-  }while(attempt<70&&(
-    Math.hypot(x-7.5,z-8.2)<3.2||Math.hypot(x+7.5,z-7.9)<3.2||
-    Math.hypot(x-beach.camera.position.x,z-beach.camera.position.z)<2||
-    state.beachFinds.some(f=>Math.hypot(f.x-x,f.z-z)<1.55)
-  ));
-  const uid=state.day+'-'+state.beachFinds.length+'-'+Math.floor(Math.random()*1000000);
-  const find={uid,itemId:item.id,method,x,z};
-  state.beachFinds.push(find);
-  beach.spawn(item,method,x,z,uid);
-}
-function newTide(){
+function spawnTides() {
   beach.clearFinds();
-  state.beachFinds=[];
-  // A handful of treasures per day keeps the cove inviting rather than cluttered.
-  for(const [method,n] of [['surface',9],['shovel',5],['detector',4]])
-    for(let i=0;i<n;i++)spawnOne(method);
+  for (const f of state.beachFinds)
+    if (ITEMS[f.itemId])
+      beach.spawn(ITEMS[f.itemId], f.method, f.x, f.z, f.uid);
+  if (cave) {
+    cave.clearFinds();
+    for (const f of state.caveFinds)
+      if (ITEMS[f.itemId])
+        cave.spawn(ITEMS[f.itemId], f.method, f.x, f.z, f.uid);
+  }
+}
+ensureTides(state);
+spawnTides();
+save();
+function collect(find) {
+  const { item, method, uid } = find.userData.find;
+  if (!canDiscover(state, method))
+    return toast(
+      'This find needs ' +
+        (UPGRADES.find((u) => u.id === method)?.name || 'another tool') +
+        '.',
+    );
+  if (
+    ['detector', 'coil', 'professional'].includes(method) &&
+    performance.now() > scanUntil
+  )
+    return toast('Press F to scan first.');
+  const first = !state.discovered.includes(item.id),
+    found = takeFind(state, uid, mode);
+  if (!found) return;
+  currentWorld().remove(find);
+  toast((first ? '✦ First discovery · ' : 'Safely tucked away · ') + item.name);
+  if (soundOn) chime(first ? 660 : 480, 0.35);
+  if (['Legendary', 'Mythic'].includes(item.rarity)) celebrate(item);
+  for (const set of claimCompletedSets(state))
+    setTimeout(
+      () =>
+        toast(set + ' complete! A pressed-flower seal & 500 sand dollars ♡'),
+      1200,
+    );
   save();
   refreshHUD();
 }
-if(state.beachFinds===null)newTide();
-else for(const f of state.beachFinds)beach.spawn(ITEMS[f.itemId],f.method,f.x,f.z,f.uid);
-function collect(find){
-  const {item,method}=find.userData.find;
-  if(method==='shovel'&&!state.shovel)return toast('A little shovel would help here!');
-  if(method==='detector'&&!state.detector)return;
-  if(method==='detector'&&performance.now()>scanUntil)return toast('Press F to scan for buried treasures.');
-  beach.remove(find);
-  state.beachFinds=state.beachFinds.filter(f=>f.uid!==find.userData.find.uid);
-  state.bag[item.id]=(state.bag[item.id]||0)+1;
-  const first=!state.discovered.includes(item.id);
-  if(first)state.discovered.push(item.id);
-  const adjective=first?'✦ NEW FIND! ':'Added to backpack · ';
-  toast(adjective+item.name+(item.rarity==='Legendary'?' ✨':''));
-  if(first){
-    const setItems=CATALOG.filter(i=>i.set===item.set);
-    if(setItems.every(i=>state.discovered.includes(i.id))&&!state.claimed.includes(item.set)){
-      state.claimed.push(item.set);state.coins+=75;
-      setTimeout(()=>toast('✿ '+item.set+' collection complete! +75 sand dollars'),850);
-    }
-  }
-  save();refreshHUD();
+function celebrate(item) {
+  const el = $('discovery');
+  el.style.setProperty('--rarity', RARITIES[item.rarity].color);
+  el.innerHTML = `<small>${item.rarity} discovery</small><strong>${item.name}</strong><span>A little wonder, just for you.</span>`;
+  el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 5000);
+  if (soundOn)
+    [523, 659, 784, 1046].forEach((hz, j) =>
+      setTimeout(() => chime(hz, 0.9), j * 160),
+    );
 }
 function nearTarget() {
-  const pos=beach.camera.position,dxz=p=>Math.hypot(pos.x-p.x,pos.z-p.z);
-  const exchange=dxz(beach.stations.exchange),cottage=dxz(beach.stations.cottage);
-  if(exchange<3.5)return {kind:'exchange',distance:exchange,name:'Browse beach exchange'};
-  if(cottage<3.5)return {kind:'cottage',distance:cottage,name:'Enter your cottage'};
-  let chosen=null;
-  for(const f of beach.finds){
-    if(!f.visible)continue;
-    if(f.userData.find.method==='shovel'&&!state.shovel)continue;
-    const d=dxz(f.position);
-    if(d>2.55)continue;
-    const to=f.position.clone().sub(pos);to.y=0;to.normalize();
-    const dir=new THREE.Vector3(0,0,-1).applyAxisAngle(yAxis,beach.camera.rotation.y);
-    // Gentle aim preference without forcing pixel-perfect targeting.
-    const facing=to.dot(dir);
-    const score=d-(facing>.35?.65:0);
-    if(!chosen||score<chosen.score)chosen={kind:'find',find:f,distance:d,score,name:f.userData.find.method==='surface'?
-      'Pick up '+f.userData.find.item.name:'Dig in the sand'};
+  const w = currentWorld(),
+    pos = w.camera.position,
+    dist = (p) => Math.hypot(pos.x - p.x, pos.z - p.z);
+  if (mode === 'cave' && dist(w.stations.exit) < 2.4)
+    return { kind: 'exit', name: 'Return to the sunny cove' };
+  if (mode === 'beach') {
+    if (dist(beach.stations.cave) < 3)
+      return {
+        kind: 'cave',
+        name: owns(state, 'caveAccess')
+          ? 'Enter Mossglass Cave'
+          : 'Cave gate · see unlock requirements',
+      };
+    if (dist(beach.stations.exchange) < 3.5)
+      return { kind: 'exchange', name: 'Browse beach exchange' };
+    if (dist(beach.stations.cottage) < 3.5)
+      return { kind: 'cottage', name: 'Enter your cottage' };
   }
-  return chosen;
+  let target = null;
+  for (const f of w.finds) {
+    if (!f.visible) continue;
+    const d = dist(f.position);
+    if (d > 2.55) continue;
+    const dir = new THREE.Vector3(0, 0, -1).applyAxisAngle(
+        yAxis,
+        w.camera.rotation.y,
+      ),
+      to = f.position.clone().sub(pos);
+    to.y = 0;
+    const score = d - (to.normalize().dot(dir) > 0.35 ? 0.65 : 0);
+    if (!target || score < target.score) {
+      const m = f.userData.find.method;
+      target = {
+        kind: 'find',
+        find: f,
+        score,
+        name: canDiscover(state, m)
+          ? m === 'surface' || m === 'cave'
+            ? 'Pick up ' + f.userData.find.item.name
+            : 'Reveal with ' + (UPGRADES.find((u) => u.id === m)?.name || m)
+          : 'Needs ' + (UPGRADES.find((u) => u.id === m)?.name || m),
+      };
+    }
+  }
+  return target;
 }
-function setInteraction(t){
-  const el=$('interaction');
-  if(mode!=='beach'||!started||activePanel||!t){el.classList.remove('visible');return;}
-  el.innerHTML='<kbd>E</kbd>'+t.name;
-  el.classList.add('visible');
+function interact() {
+  if (!started || mode === 'shelf' || activePanel) return;
+  const t = nearTarget();
+  if (!t) return;
+  if (t.kind === 'find') collect(t.find);
+  if (t.kind === 'exchange') exchange();
+  if (t.kind === 'cottage') enterShelf();
+  if (t.kind === 'cave') {
+    if (owns(state, 'caveAccess')) enterCave();
+    else exchange('equipment');
+  }
+  if (t.kind === 'exit') leaveCave();
 }
-function interact(){
-  if(!started||mode!=='beach'||activePanel)return;
-  const target=nearTarget();if(!target)return;
-  if(target.kind==='find')collect(target.find);
-  if(target.kind==='exchange')exchange();
-  if(target.kind==='cottage')enterShelf();
+function enterCave() {
+  if (!owns(state, 'caveAccess')) return;
+  const w = getCave();
+  w.camera.position.set(0, 1.7, 1);
+  w.camera.rotation.set(0, 0, 0);
+  spawnTides();
+  mode = 'cave';
+  refreshHUD();
+  resize();
+  changeAmbience();
+  toast('Mossglass Cave · the cliffs are keeping little secrets.');
+}
+function leaveCave() {
+  mode = 'beach';
+  beach.camera.position.set(12.5, 1.7, 1);
+  refreshHUD();
+  resize();
+  changeAmbience();
 }
 function scan() {
-  if(!state.detector){toast('The metal detector is available at the exchange ✨');return;}
-  if(mode!=='beach'||activePanel)return;
-  scanUntil=performance.now()+10000;
-  const hidden=beach.finds.filter(f=>f.userData.find.method==='detector');
-  const d=Math.min(...hidden.map(f=>Math.hypot(f.position.x-beach.camera.position.x,f.position.z-beach.camera.position.z)),Infinity);
-  toast(d<7?'BEEP! Something is buried nearby! ✨':'Detector scanning... look for golden rings in the sand');
-  if(soundOn)chime(650,.17);
+  if (!owns(state, 'detector'))
+    return toast('Work toward a detector at the beach exchange.');
+  if (mode !== 'beach' || activePanel) return;
+  scanUntil =
+    performance.now() +
+    (owns(state, 'professional') ? 24000 : owns(state, 'coil') ? 17000 : 10000);
+  toast('A gentle chime… look for warm glints in the sand.');
+  if (soundOn) chime(650, 0.2);
 }
-function panelShell(title,eyebrow,html) {
-  activePanel=title.toLowerCase();
-  $('panelTitle').textContent=title;$('panelEyebrow').textContent=eyebrow;
-  $('panelContent').innerHTML=html;
-  $('panelBackdrop').classList.remove('hidden');$('panel').classList.remove('hidden');
-  if(document.pointerLockElement)document.exitPointerLock();
-  setInteraction(null);
+function panelShell(title, eyebrow, html) {
+  clearMuseum();
+  paintingCleanup?.();
+  paintingCleanup = null;
+  keys.clear();
+  activePanel = title.toLowerCase();
+  $('panelTitle').textContent = title;
+  $('panelEyebrow').textContent = eyebrow;
+  $('panelContent').innerHTML = html;
+  $('panelBackdrop').classList.remove('hidden');
+  $('panel').classList.remove('hidden');
+  $('panel').classList.toggle('wide', title === 'Model Gallery');
+  $('panelContent').scrollTop = 0;
+  if (document.pointerLockElement) document.exitPointerLock();
+  $('interaction').classList.remove('visible');
+  mountMuseum($('panelContent'));
+  $('closePanel').focus();
 }
-function closePanel(){
-  activePanel='';$('panel').classList.add('hidden');$('panelBackdrop').classList.add('hidden');
+function closePanel() {
+  clearMuseum();
+  paintingCleanup?.();
+  paintingCleanup = null;
+  activePanel = '';
+  $('panel').classList.add('hidden');
+  $('panelBackdrop').classList.add('hidden');
+  lastPrompt = '';
+  renderer.domElement.focus();
 }
-function itemCard(item) {
-  const known=state.discovered.includes(item.id);
-  return '<div class="item-card '+(!known?'unknown':item.rarity==='Legendary'||item.rarity==='Rare'?'rare':'')+'">'+
-    '<span class="item-emoji">'+(known?iconFor(item):'❔')+'</span>'+
-    '<b>'+(known?item.name:'???')+'</b><small>'+(known?item.rarity+' · '+item.method:'Not discovered yet')+'</small>'+
-    (known?'<span class="count">×'+count(item.id)+'</span>':'')+'</div>';
+function itemCard(i, developer = false) {
+  const known = state.discovered.includes(i.id) || developer;
+  return `<button class="item-card ${known ? '' : 'unknown'}" data-action="inspect" data-id="${i.id}"><div class="model-thumbnail" data-model="${i.id}" data-unknown="${!known}" aria-hidden="true"></div><b>${known ? i.name : 'Undiscovered keepsake'}</b>${badge(i)}<small>${known ? `${count(i.id)} owned · ${i.environment}` : 'A little secret waiting to be found'}</small></button>`;
 }
-function journal(){
-  const inSet=tab==='All'?CATALOG:CATALOG.filter(i=>i.set===tab);
-  const done=inSet.filter(i=>state.discovered.includes(i.id)).length;
-  let html='<p class="lead">Every little find has a story. Discover them all to finish your collection pages and earn a sweet reward. ♡</p>'+
-    '<div class="pill-row">'+['All',...SETS].map(s=>'<button class="pill '+(tab===s?'active':'')+'" data-action="tab" data-id="'+s+'">'+s+'</button>').join('')+'</div>'+
-    '<div class="progress-line"><span>'+done+' of '+inSet.length+' found</span><span>'+Math.round(done/inSet.length*100)+'%</span></div>'+
-    '<div class="progress-track"><div class="progress-fill" style="width:'+(done/inSet.length*100)+'%"></div></div>';
-  const shown=tab==='All'?SETS:[tab];
-  for(const set of shown){
-    const group=CATALOG.filter(i=>i.set===set),found=group.filter(i=>state.discovered.includes(i.id)).length;
-    html+='<div class="set-header"><h3>'+set+(state.claimed.includes(set)?' ✿':'')+'</h3><span>'+found+'/'+group.length+'</span></div>'+
-      '<div class="item-grid">'+group.map(itemCard).join('')+'</div>';
+function filterBar() {
+  return `<div class="pill-row">${['All', ...SETS].map((s) => `<button class="pill ${tab === s ? 'active' : ''}" data-action="tab" data-id="${s}">${s}</button>`).join('')}</div><div class="journal-filters"><label>Rarity <select id="rarityFilter">${['All', ...Object.keys(RARITIES)].map((r) => `<option ${rarityFilter === r ? 'selected' : ''}>${r}</option>`).join('')}</select></label><label>Discovery <select id="knownFilter">${['All', 'Discovered', 'Undiscovered'].map((r) => `<option ${knownFilter === r ? 'selected' : ''}>${r}</option>`).join('')}</select></label></div>`;
+}
+function journal(gallery = false) {
+  const inSet = CATALOG.filter((i) => tab === 'All' || i.set === tab),
+    done = inSet.filter((i) => state.discovered.includes(i.id)).length;
+  let html = `<p class="lead">${gallery ? 'Developer gallery · every authored model, including undiscovered treasures. Select one to inspect.' : 'Every little find has a story. Keep the ones that make your heart happy. ♡'}</p>${filterBar()}<div class="progress-line"><span>${done} / ${inSet.length} found · ${uniqueCount()}/200 overall</span><span>${Math.round((done / inSet.length) * 100)}%</span></div><div class="progress-track"><div class="progress-fill" style="width:${(done / inSet.length) * 100}%"></div></div>`;
+  if (!gallery && tab === 'All' && state.recent.length) {
+    html +=
+      '<h3>Recently found</h3><div class="recent-row">' +
+      state.recent
+        .slice(0, 4)
+        .filter((id) => ITEMS[id])
+        .map(
+          (id) =>
+            `<button data-action="inspect" data-id="${id}">${ITEMS[id].name}</button>`,
+        )
+        .join('') +
+      '</div>';
   }
-  panelShell('Collections','your keepsake journal',html);
-}
-function backpack(){
-  const owned=CATALOG.filter(i=>count(i.id)>0);
-  let html='<p class="lead">All your little treasures, safe and sound. Take your favorites to the cottage or sell the extras at the exchange.</p>';
-  if(!owned.length)html+='<div class="empty-state"><span>🧺</span>Your backpack is empty.<br/>Explore the shore and pick up a pretty shell!</div>';
-  else{
-    html+='<div class="notice">'+ownedCount()+' treasures in your bag · '+uniqueCount()+' different kinds discovered</div>';
-    html+=owned.map(i=>'<div class="line-item"><div class="line-icon">'+iconFor(i)+'</div><div class="line-info"><b>'+i.name+' ×'+count(i.id)+'</b>'+
-      '<small>'+i.rarity+' · '+onShelf(i.id)+' displayed · '+available(i.id)+' available</small></div>'+
-      '<button data-action="place" data-id="'+i.id+'" '+(!available(i.id)||state.shelf.length>=18?'disabled':'')+'>Display</button></div>').join('');
+  for (const set of tab === 'All' ? SETS : [tab]) {
+    const group = CATALOG.filter((i) => i.set === set),
+      shown = group.filter(
+        (i) =>
+          (rarityFilter === 'All' || i.rarity === rarityFilter) &&
+          (knownFilter === 'All' ||
+            state.discovered.includes(i.id) === (knownFilter === 'Discovered')),
+      );
+    html += `<div class="set-header"><h3>${COLLECTION_NAMES[SETS.indexOf(set)]}</h3><span>${group.filter((i) => state.discovered.includes(i.id)).length}/${group.length}</span></div><p class="tiny">${state.claimed.includes(set) ? '✿ Completed · pressed-flower seal earned' : 'Complete this set for 500 sand dollars & a journal seal.'}</p><div class="item-grid">${shown.map((i) => itemCard(i, gallery)).join('')}</div>`;
   }
-  panelShell('Backpack','your pocketful of treasures',html);
+  panelShell(
+    gallery ? 'Model Gallery' : 'Collections',
+    gallery ? '200 little sculptures' : 'your keepsake journal',
+    html,
+  );
+  $('rarityFilter').onchange = (e) => {
+    rarityFilter = e.target.value;
+    journal(gallery);
+  };
+  $('knownFilter').onchange = (e) => {
+    knownFilter = e.target.value;
+    journal(gallery);
+  };
 }
-function exchange(){
-  let html='<p class="lead">The little self-serve beach exchange. Leave your discoveries in the basket, collect sand dollars, and take home a new tool. No lines, no rush. ✿</p>';
-  html+='<div class="notice">☀ You have <b>'+money(state.coins)+' sand dollars</b>. Displayed treasures are safe from selling.</div>';
-  html+='<div class="set-header"><h3>Lovely upgrades</h3></div>';
-  for(const u of UPGRADES){
-    const owned=state[u.id];
-    html+='<div class="line-item"><span class="line-icon">'+(u.id==='shovel'?'🪏':'📡')+'</span>'+
-      '<div class="line-info"><b>'+u.name+'</b><small>'+u.detail+'</small></div>'+
-      '<button data-action="buy" data-id="'+u.id+'" '+(owned||state.coins<u.cost?'disabled':'')+'>'+(owned?'Owned':'☀ '+u.cost)+'</button></div>';
+let inspectionReturn = false;
+function inspect(id) {
+  const i = ITEMS[id];
+  if (!i) return;
+  const developer =
+      activePanel === 'model gallery' ||
+      (inspectionReturn && new URLSearchParams(location.search).has('gallery')),
+    known = state.discovered.includes(id) || developer;
+  inspectionReturn = developer;
+  panelShell(
+    known ? i.name : 'A hidden little wonder',
+    i.set,
+    `<div class="inspection-model" data-model="${id}" data-unknown="${!known}" aria-label="Drag to rotate collectible"></div><p class="tiny centered">Drag to turn · slowly rotates on its own</p>${badge(i)}<p class="inspection-story">${known ? i.description : 'A silhouette in your journal, waiting for the day you meet.'}</p><div class="notice">${state.discovered.includes(id) ? 'Discovered' : 'Undiscovered'} · ${count(id)} copies owned · ${onShelf(id)} displayed<br>${i.environment === 'cave' ? 'Mossglass Cave' : 'The little seaside cove'} · ${i.method === 'surface' ? 'shoreline' : UPGRADES.find((u) => u.id === i.method)?.name || 'cave floor'}${known ? `<br>Sale value: ${i.value} sand dollars` : ''}</div><div class="custom-row"><button data-action="journal-back">← Back to ${developer ? 'gallery' : 'journal'}</button>${available(id) ? `<button data-action="place" data-id="${id}">Display in cottage</button>` : ''}</div>`,
+  );
+}
+function backpack() {
+  let html =
+    '<p class="lead">A pocketful of lovely things. Displayed treasures are protected from selling.</p>';
+  const owned = CATALOG.filter((i) => count(i.id));
+  html += owned.length
+    ? owned
+        .map(
+          (i) =>
+            `<div class="line-item"><button class="line-icon" data-action="inspect" data-id="${i.id}" aria-label="Inspect ${i.name}">${iconFor(i)}</button><div class="line-info"><b>${i.name} ×${count(i.id)}</b>${badge(i)}<small>${onShelf(i.id)} displayed · ${available(i.id)} available</small></div><button data-action="place" data-id="${i.id}" ${!available(i.id) || state.shelf.length >= shelfSlots(state).length ? 'disabled' : ''}>Display</button></div>`,
+        )
+        .join('')
+    : '<div class="empty-state">🧺<br>Your backpack is ready for its first little treasure.</div>';
+  if (owns(state, 'pouch'))
+    html +=
+      '<button class="button-soft" data-action="sell-extras">Sell spare copies · keep one of each</button>';
+  panelShell('Backpack', 'safe and sound', html);
+}
+let shopTab = 'equipment';
+function exchange(which = shopTab) {
+  shopTab = which;
+  let html = `<p class="lead">New tools reveal new kinds of treasure. Take your time; the tide always comes back.</p><div class="notice">${money(state.coins)} sand dollars · ${uniqueCount()} unique discoveries</div><div class="pill-row">${['equipment', 'cottage', 'sell'].map((t) => `<button class="pill ${which === t ? 'active' : ''}" data-action="shop-tab" data-id="${t}">${t}</button>`).join('')}</div>`;
+  if (which === 'sell') {
+    const list = CATALOG.filter((i) => available(i.id));
+    html +=
+      list
+        .map(
+          (i) =>
+            `<div class="line-item"><button class="line-icon" data-action="inspect" data-id="${i.id}">${iconFor(i)}</button><div class="line-info"><b>${i.name} ×${available(i.id)}</b>${badge(i)}</div><button data-action="sell" data-id="${i.id}">+ ${i.value}</button></div>`,
+        )
+        .join('') ||
+      '<p class="lead">Nothing available to sell. Your displayed pieces stay safe.</p>';
+  } else
+    for (const u of which === 'cottage' ? DECOR : UPGRADES) {
+      const reason = purchaseReason(state, u),
+        owned = owns(state, u.id);
+      html += `<div class="line-item"><span class="line-icon">${which === 'cottage' ? '✿' : '✧'}</span><div class="line-info"><b>${u.name}</b><small>${u.detail || 'A permanent finish for your cozy room.'}${reason && !owned ? '<br>' + reason : ''}</small></div><button data-action="${owned && u.kind ? 'apply-decor' : 'buy'}" data-id="${u.id}" ${reason && !(owned && u.kind) ? 'disabled' : ''}>${owned ? (u.kind ? 'Apply' : 'Owned') : money(u.cost)}</button></div>`;
+    }
+  if (which === 'cottage')
+    html +=
+      '<button class="button-soft" data-action="plain-wall">Plain walls</button> <button class="button-soft" data-action="painting">Open painting studio</button>';
+  panelShell('Beach Exchange', 'the little trading stand', html);
+}
+function buy(id) {
+  const u = [...UPGRADES, ...DECOR].find((u) => u.id === id);
+  if (!purchase(state, id)) return;
+  save();
+  shelf.customize(state);
+  beach.setGate(owns(state, 'caveAccess'));
+  refreshHUD();
+  refreshShelfUI();
+  exchange();
+  toast(
+    u.name +
+      ' is yours. ' +
+      (UPGRADES.includes(u)
+        ? 'New discovery pools arrive with the next tide.'
+        : 'Find it in your cottage.'),
+  );
+}
+function sell(id) {
+  if (!sellTreasure(state, id)) return;
+  save();
+  refreshHUD();
+  exchange('sell');
+}
+function shelfPicker() {
+  const entries = CATALOG.filter((i) => available(i.id));
+  panelShell(
+    'Display a treasure',
+    'make it your own',
+    `<p class="lead">${state.shelf.length}/${shelfSlots(state).length} spaces occupied. Drag a treasure between shelf spaces; Q / R turns it.</p>` +
+      (state.shelf.length >= shelfSlots(state).length
+        ? '<div class="notice">Your shelves are full. More shelves are available at the exchange.</div>'
+        : entries
+            .map(
+              (i) =>
+                `<div class="line-item"><button class="line-icon" data-action="inspect" data-id="${i.id}">${iconFor(i)}</button><div class="line-info"><b>${i.name}</b><small>${available(i.id)} available</small></div><button data-action="place" data-id="${i.id}">Place</button></div>`,
+            )
+            .join('') ||
+          '<p class="lead">Your next favorite is somewhere along the shore.</p>'),
+  );
+}
+function selectShelf(uid) {
+  selectedUid = uid;
+  $('removeShelfButton').disabled = !state.shelf.some((p) => p.uid === uid);
+  for (const o of shelf.displays.children) {
+    const selected = o.userData.placementUid === uid;
+    const marker = o.getObjectByName('selection');
+    if (marker) marker.visible = selected;
   }
-  html+='<div class="divider"></div><div class="set-header"><h3>Sell your finds</h3></div>';
-  const canSell=CATALOG.filter(i=>available(i.id)>0);
-  if(!canSell.length)html+='<div class="empty-state"><span>🐚</span>No treasures available to sell yet.<br/>Anything on a shelf will stay there safely!</div>';
-  else html+=canSell.map(i=>'<div class="line-item"><div class="line-icon">'+iconFor(i)+'</div>'+
-    '<div class="line-info"><b>'+i.name+' ×'+available(i.id)+'</b><small>'+i.rarity+' · '+i.set+'</small></div>'+
-    '<button data-action="sell" data-id="'+i.id+'">+ ☀ '+i.value+'</button></div>').join('');
-  panelShell('Beach Exchange','the little trading stand',html);
 }
-function shelfPicker(){
-  const possible=CATALOG.filter(i=>available(i.id)>0);
-  let html='<p class="lead">Choose something to put on your shelves. Once placed, you can drag it around and turn it to find the perfect spot.</p>';
-  if(!possible.length)html+='<div class="empty-state"><span>🪞</span>Nothing left to display.<br/>Collect more treasures along the shore!</div>';
-  else html+=possible.map(i=>'<div class="line-item"><div class="line-icon">'+iconFor(i)+'</div>'+
-    '<div class="line-info"><b>'+i.name+'</b><small>'+available(i.id)+' available · '+i.set+'</small></div>'+
-    '<button data-action="place" data-id="'+i.id+'">Place</button></div>').join('');
-  if(state.shelf.length>=18)html='<div class="notice">All 18 spots are filled. Remove a treasure to make space.</div>';
-  panelShell('Display a treasure','make it your own',html);
-}
-function help(){
-  panelShell('How to play','a very little guide',
-    '<p class="lead">There is no timer, no pressure, and no way to lose. Find treasures at your own pace, finish your journal pages, and decorate your cozy room.</p>'+
-    '<div class="keys">'+
-    '<kbd>W A S D</kbd><span>Walk along the beach</span>'+
-    '<kbd>MOUSE</kbd><span>Look around (click the world to capture mouse)</span>'+
-    '<kbd>E</kbd><span>Pick up a find, dig, or use the cottage / exchange</span>'+
-    '<kbd>F</kbd><span>Scan the sand once you own a metal detector</span>'+
-    '<kbd>B / J</kbd><span>Open backpack / collection journal</span>'+
-    '<kbd>H</kbd><span>Visit your cottage shelves from anywhere and sleep until morning</span>'+
-    '<kbd>ESC</kbd><span>Close menus or release mouse control</span>'+
-    '<kbd>Q / R</kbd><span>Rotate a selected treasure on your shelves</span></div>'+
-    '<p class="lead">The shovel reveals little digging spots. The detector highlights buried finds for ten seconds each time you scan. Sleep in your cottage to let the tide bring a fresh batch of treasures. Completed collections earn 75 sand dollars. Everything saves automatically in this browser.</p>');
-}
-function buy(id){
-  const u=UPGRADES.find(i=>i.id===id);
-  if(!u||state[id]||state.coins<u.cost)return;
-  state.coins-=u.cost;state[id]=true;
-  // Buried treasures for today's tide already exist; the new tool reveals them.
-  save();refreshHUD();exchange();toast('✿ '+u.name+' unlocked!');
-}
-function sell(id){
-  const item=ITEMS[id];if(!item||available(id)<1)return;
-  state.bag[id]--;state.coins+=item.value;
-  save();refreshHUD();exchange();toast('Sold '+item.name+' for ☀ '+item.value);
-}
-function syncShelf(){
-  shelf.clearDisplay();for(const p of state.shelf)if(ITEMS[p.itemId])shelf.addDisplay(ITEMS[p.itemId],p);
+function syncShelf() {
+  shelf.clearDisplay();
+  for (const p of state.shelf)
+    if (ITEMS[p.itemId]) {
+      const o = shelf.addDisplay(ITEMS[p.itemId], p);
+      const marker = new THREE.Mesh(
+        new THREE.RingGeometry(0.36, 0.385, 32),
+        new THREE.MeshBasicMaterial({
+          color: '#dba1b1',
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.8,
+        }),
+      );
+      marker.name = 'selection';
+      marker.rotation.x = -Math.PI / 2;
+      marker.position.y = 0.01;
+      marker.visible = false;
+      o.add(marker);
+    }
   selectShelf(selectedUid);
 }
-function selectShelf(uid){
-  selectedUid=uid;
-  for(const m of shelf.displays.children)m.scale.setScalar(m.userData.placementUid===uid?1.11:.97);
-  $('removeShelfButton').disabled=!state.shelf.some(p=>p.uid===uid);
+function place(id) {
+  if (!ITEMS[id] || available(id) < 1) return;
+  const targets = {
+    main: [0, 1.18, -2.55],
+    left: [-4.6, 1.18, -2.55],
+    right: [4.6, 1.18, -2.55],
+    cabinet: [0, 0.95, 0.25],
+    sunroom: [8.6, 1.18, -2.55],
+    upper: [-7.1, 5.65, -2.55],
+  };
+  const target = targets[$('shelfView').value] || targets.main;
+  const slot = nearestSlot(state, { x: target[0], y: target[1], z: target[2] });
+  if (!slot)
+    return toast(
+      'Your shelves are full. Visit the cottage shop for more room.',
+    );
+  const uid = Date.now() + Math.random();
+  state.shelf.push({ ...slot, uid, itemId: id, rotation: 0 });
+  selectedUid = uid;
+  save();
+  enterShelf();
+  toast(ITEMS[id].name + ' has a place to call home ♡');
 }
-function place(id){
-  if(!ITEMS[id]||available(id)<1||state.shelf.length>=18)return;
-  const slot=shelf.slotPositions[state.shelf.length];
-  let uid=Date.now()*100+Math.floor(Math.random()*99);
-  while(state.shelf.some(p=>p.uid===uid))uid++;
-  state.shelf.push({uid,itemId:id,x:slot.x,y:slot.y,z:slot.z,rotation:0});
-  save();syncShelf();
-  if(mode==='shelf')shelfPicker();else backpack();
-  toast(ITEMS[id].name+' added to your display ✿');
+function removeSelected() {
+  const j = state.shelf.findIndex((p) => p.uid === selectedUid);
+  if (j < 0) return;
+  state.shelf.splice(j, 1);
+  selectedUid = null;
+  save();
+  syncShelf();
+  toast('Returned safely to your backpack.');
 }
-function removeSelected(){
-  const i=state.shelf.findIndex(p=>p.uid===selectedUid);
-  if(i<0)return;
-  const name=ITEMS[state.shelf[i].itemId].name;
-  state.shelf.splice(i,1);selectedUid=null;save();syncShelf();
-  toast(name+' returned to your backpack');
+let returnMode = 'beach';
+function setShelfView(which = 'main') {
+  const views = {
+    main: [0, 2.7, 8, 0, 2.2, -2.48],
+    left: [-4.6, 2.8, 4, -4.6, 2.2, -2.55],
+    right: [4.6, 2.8, 4, 4.6, 2.2, -2.55],
+    cabinet: [0, 2.6, 6, 0, 1.8, 0.25],
+    sunroom: [8.6, 2.8, 5, 8.6, 2.2, -2.55],
+    upper: [-7.1, 7.1, 7, -7.1, 6.6, -2.55],
+    overview: [0, 5, 24, 0, 3.9, -2.48],
+  };
+  const p = views[which] || views.main;
+  shelf.camera.position.set(...p.slice(0, 3));
+  cottageControls.target.set(...p.slice(3));
+  cottageControls.update();
 }
-function enterShelf(){
-  closePanel();if(document.pointerLockElement)document.exitPointerLock();
-  mode='shelf';document.body.classList.add('in-shelf');$('shelfControls').classList.remove('hidden');
-  $('crosshair').classList.add('hidden');$('interaction').classList.remove('visible');
-  syncShelf();refreshShelfUI();resize();
-  toast('Welcome home! Make your shelves lovely ♡');
+function enterShelf() {
+  if (mode !== 'shelf') returnMode = mode;
+  closePanel();
+  if (document.pointerLockElement) document.exitPointerLock();
+  mode = 'shelf';
+  document.body.classList.add('in-shelf');
+  $('shelfControls').classList.remove('hidden');
+  $('crosshair').classList.add('hidden');
+  shelf.customize(state);
+  setShelfView($('shelfView').value);
+  syncShelf();
+  refreshShelfUI();
+  resize();
+  changeAmbience();
 }
-function leaveShelf(){
-  closePanel();mode='beach';document.body.classList.remove('in-shelf');
-  $('shelfControls').classList.add('hidden');$('crosshair').classList.remove('hidden');
-  selectShelf(null);resize();toast('Back to the sunny shore ☼');
+function leaveShelf() {
+  closePanel();
+  mode = returnMode;
+  document.body.classList.remove('in-shelf');
+  $('shelfControls').classList.add('hidden');
+  $('crosshair').classList.remove('hidden');
+  selectShelf(null);
+  resize();
+  refreshHUD();
+  changeAmbience();
 }
-function sleepUntilMorning(){
-  if(!started||mode!=='shelf'||activePanel||sleeping)return;
-  sleeping=true;keys.clear();
-  const overlay=$('sleepScreen');
-  $('sleepMessage').textContent='The waves whisper goodnight...';
-  $('sleepDay').textContent='Day '+state.day;
-  overlay.classList.remove('hidden');
-  requestAnimationFrame(()=>overlay.classList.add('active'));
-  setTimeout(()=>{
-    state.day=clampDay(state.day+1);
-    newTide();
-    beach.camera.position.set(0,1.7,2);
-    beach.camera.rotation.set(0,0,0);
-    scanUntil=0;
+function sleepUntilMorning() {
+  if (!started || mode !== 'shelf' || activePanel || sleeping) return;
+  sleeping = true;
+  keys.clear();
+  $('sleepMessage').textContent = 'The waves whisper goodnight…';
+  $('sleepDay').textContent = 'Day ' + state.day;
+  $('sleepScreen').classList.remove('hidden');
+  requestAnimationFrame(() => $('sleepScreen').classList.add('active'));
+  setTimeout(() => {
+    advanceDay(state);
+    spawnTides();
+    save();
+    beach.camera.position.set(0, 1.7, 2);
+    beach.camera.rotation.set(0, 0, 0);
+    scanUntil = 0;
+    returnMode = 'beach';
     leaveShelf();
-    $('sleepMessage').textContent='The tide brought new treasures ✨';
-    $('sleepDay').textContent='Day '+state.day;
-    setTimeout(()=>{
-      overlay.classList.remove('active');
-      setTimeout(()=>{overlay.classList.add('hidden');sleeping=false;},650);
-    },1150);
-  },1100);
+    $('sleepMessage').textContent = 'A fresh tide, a little possibility ♡';
+    $('sleepDay').textContent = 'Day ' + state.day;
+    setTimeout(() => {
+      $('sleepScreen').classList.remove('active');
+      setTimeout(() => {
+        $('sleepScreen').classList.add('hidden');
+        sleeping = false;
+      }, 650);
+    }, 1000);
+  }, 1100);
 }
-function refreshShelfUI(){
-  const title=s=>s.charAt(0).toUpperCase()+s.slice(1);
-  $('wallButton').textContent='🎨 Wall: '+title(state.wall);
-  $('woodButton').textContent='🪵 Shelf: '+title(state.wood);
-  $('lightButton').textContent='✨ Fairy lights: '+(state.lights?'On':'Off');
+function refreshShelfUI() {
+  $('wallButton').textContent = '🎨 Walls: ' + state.wall;
+  $('woodButton').textContent = '🪵 Shelves: ' + state.wood;
+  $('lightButton').textContent = '✨ Lights: ' + (state.lights ? 'On' : 'Off');
+  for (const o of $('shelfView').options) {
+    const requirement = {
+      left: 'secondShelf',
+      right: 'secondShelf',
+      cabinet: 'cabinet',
+      sunroom: 'roomExpansion',
+      upper: 'deluxeGallery',
+    }[o.value];
+    o.disabled = !!requirement && !owns(state, requirement);
+  }
 }
-function cycleOption(key,values){
-  const i=values.indexOf(state[key]);state[key]=values[(i+1)%values.length];
-  if(key==='wall')shelf.setWall(SHOP_COLORS[state.wall]);
-  else if(key==='wood')shelf.setWood(WOODS[state.wood]);
-  else shelf.setLights(state.lights);
-  save();refreshShelfUI();
+function painting() {
+  if (!owns(state, 'paintingKit')) {
+    exchange('cottage');
+    toast('The painting kit is waiting in the cottage shop.');
+    return;
+  }
+  panelShell('Painting Studio', 'a little piece of you', '');
+  paintingCleanup = openPainting($('panelContent'), state.artwork, (pixels) => {
+    state.artwork = pixels;
+    shelf.setArtwork(pixels);
+    const ok = save();
+    return ok;
+  });
 }
-function resize(){
-  renderer.setSize(window.innerWidth,window.innerHeight);
-  for(const cam of [beach.camera,shelf.camera]){cam.aspect=window.innerWidth/window.innerHeight;cam.updateProjectionMatrix();}
+function cycleOption(key, values) {
+  state[key] = values[(values.indexOf(state[key]) + 1) % values.length];
+  shelf.customize(state);
+  save();
+  refreshShelfUI();
 }
-resize();window.addEventListener('resize',resize);
-$('startButton').addEventListener('click',()=>{
-  started=true;$('overlay').classList.add('hidden');refreshHUD();
+function exportSave() {
+  const blob = new Blob([JSON.stringify(state, null, 2)], {
+      type: 'application/json',
+    }),
+    url = URL.createObjectURL(blob),
+    a = document.createElement('a');
+  a.href = url;
+  a.download = `trins-trinkets-day-${state.day}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function help() {
+  panelShell(
+    'How to play',
+    'a very little guide',
+    '<p class="lead">Explore → collect → keep or sell → decorate → sleep → a new tide. No timer, no pressure.</p><div class="keys"><kbd>WASD</kbd><span>Wander · Shift to walk faster</span><kbd>Mouse</kbd><span>Click the world to look around</span><kbd>E</kbd><span>Collect, visit the exchange, or enter the cave</span><kbd>F</kbd><span>Scan with your detector</span><kbd>B / J / H</kbd><span>Backpack / journal / cottage</span><kbd>Q / R</kbd><span>Turn the selected shelf treasure</span><kbd>Esc</kbd><span>Close a menu or leave your cottage</span></div><p class="lead">Only sleep refreshes discoveries. New tools open pools on the next tide. Complete each collection for 500 sand dollars. The cave gate needs 30 unique finds, the reinforced trowel and 8,000 sand dollars.</p><div class="custom-row"><button data-action="export">Export save</button><button data-action="gallery">Developer model gallery</button></div><p class="tiny">Saves live in this browser, on this site. Export a copy before changing browsers or clearing storage.</p>',
+  );
+}
+function resize() {
+  renderer.setSize(innerWidth, innerHeight);
+  for (const w of [beach, shelf, cave].filter(Boolean)) {
+    w.camera.aspect = innerWidth / innerHeight;
+    w.camera.updateProjectionMatrix();
+  }
+}
+resize();
+window.addEventListener('resize', resize);
+$('startButton').onclick = () => {
+  started = true;
+  $('overlay').classList.add('hidden');
+  refreshHUD();
   renderer.domElement.requestPointerLock?.();
-  toast('The tide is lovely today. Go find something cute! 🐚');
+  toast(
+    loaded.error ||
+      'The tide is lovely today. Find something you want to keep ♡',
+  );
+};
+$('sound').onclick = toggleSound;
+$('bagButton').onclick = backpack;
+$('journalButton').onclick = () => {
+  inspectionReturn = false;
+  journal();
+};
+$('shelfButton').onclick = () =>
+  mode === 'shelf' ? shelfPicker() : enterShelf();
+$('helpButton').onclick = help;
+$('exchangeButton').onclick = () => exchange();
+$('closePanel').onclick = $('panelBackdrop').onclick = closePanel;
+$('beachButton').onclick = leaveShelf;
+$('sleepButton').onclick = sleepUntilMorning;
+$('addShelfButton').onclick = shelfPicker;
+$('removeShelfButton').onclick = removeSelected;
+$('decorateButton').onclick = () => exchange('cottage');
+$('paintingButton').onclick = painting;
+$('wallButton').onclick = () =>
+  cycleOption(
+    'wall',
+    Object.keys(SHOP_COLORS).filter(
+      (c) =>
+        ['cream', 'blush', 'blue', 'sage', 'lavender'].includes(c) ||
+        owns(state, 'paint-' + c),
+    ),
+  );
+$('woodButton').onclick = () =>
+  cycleOption(
+    'wood',
+    Object.keys(WOODS).filter(
+      (c) =>
+        ['maple', 'white', 'walnut'].includes(c) || owns(state, 'wood-' + c),
+    ),
+  );
+$('lightButton').onclick = () => {
+  state.lights = !state.lights;
+  shelf.setLights(state.lights);
+  save();
+  refreshShelfUI();
+};
+$('shelfView').onchange = (e) => setShelfView(e.target.value);
+$('panelContent').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-action]');
+  if (!b || b.disabled) return;
+  const id = b.dataset.id,
+    a = b.dataset.action;
+  if (a === 'tab') {
+    tab = id;
+    journal(activePanel === 'model gallery');
+  }
+  if (a === 'inspect') inspect(id);
+  if (a === 'journal-back') journal(inspectionReturn);
+  if (a === 'shop-tab') exchange(id);
+  if (a === 'buy') buy(id);
+  if (a === 'sell') sell(id);
+  if (a === 'place') place(id);
+  if (a === 'painting') painting();
+  if (a === 'export') exportSave();
+  if (a === 'gallery') {
+    inspectionReturn = true;
+    journal(true);
+  }
+  if (a === 'apply-decor') {
+    const u = DECOR.find((u) => u.id === id);
+    if (owns(state, id)) {
+      state[u.kind] = u.option;
+      shelf.customize(state);
+      refreshShelfUI();
+      save();
+      toast(u.name + ' applied.');
+    }
+  }
+  if (a === 'plain-wall') {
+    state.wallpaper = 'none';
+    shelf.customize(state);
+    save();
+    toast('Plain painted walls.');
+  }
+  if (a === 'sell-extras') {
+    sellExtras(state);
+    save();
+    refreshHUD();
+    backpack();
+  }
 });
-$('sound').addEventListener('click',toggleSound);
-$('bagButton').addEventListener('click',backpack);
-$('journalButton').addEventListener('click',journal);
-$('shelfButton').addEventListener('click',()=>mode==='shelf'?shelfPicker():enterShelf());
-$('helpButton').addEventListener('click',help);
-$('closePanel').addEventListener('click',closePanel);
-$('panelBackdrop').addEventListener('click',closePanel);
-$('beachButton').addEventListener('click',leaveShelf);
-$('sleepButton').addEventListener('click',sleepUntilMorning);
-$('addShelfButton').addEventListener('click',shelfPicker);
-$('removeShelfButton').addEventListener('click',removeSelected);
-$('wallButton').addEventListener('click',()=>cycleOption('wall',Object.keys(SHOP_COLORS)));
-$('woodButton').addEventListener('click',()=>cycleOption('wood',Object.keys(WOODS)));
-$('lightButton').addEventListener('click',()=>{
-  state.lights=!state.lights;shelf.setLights(state.lights);save();refreshShelfUI();
-});
-$('panelContent').addEventListener('click',event=>{
-  const b=event.target.closest('button[data-action]');if(!b)return;
-  const id=b.dataset.id,action=b.dataset.action;
-  if(action==='tab'){tab=id;journal();}
-  if(action==='buy')buy(id);
-  if(action==='sell')sell(id);
-  if(action==='place')place(id);
-});
-renderer.domElement.addEventListener('click',()=>{
-  if(started&&mode==='beach'&&!activePanel&&!document.pointerLockElement)
+renderer.domElement.onclick = () => {
+  if (
+    started &&
+    mode !== 'shelf' &&
+    !activePanel &&
+    !document.pointerLockElement
+  )
     renderer.domElement.requestPointerLock?.();
+};
+document.addEventListener('mousemove', (e) => {
+  if (
+    mode === 'shelf' ||
+    !started ||
+    activePanel ||
+    document.pointerLockElement !== renderer.domElement
+  )
+    return;
+  const camera = currentWorld().camera;
+  camera.rotation.y -= e.movementX * 0.00215;
+  camera.rotation.x = clamp(
+    camera.rotation.x - e.movementY * 0.00215,
+    -1.24,
+    1.24,
+  );
 });
-document.addEventListener('mousemove',e=>{
-  if(mode!=='beach'||!started||activePanel||document.pointerLockElement!==renderer.domElement)return;
-  beach.camera.rotation.y-=e.movementX*.00215;
-  beach.camera.rotation.x=clamp(beach.camera.rotation.x-e.movementY*.00215,-1.24,1.24);
-});
-window.addEventListener('keydown',e=>{
-  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();
-  const key=e.key.toLowerCase();
-  if(key==='escape'){if(activePanel)closePanel();else if(mode==='shelf')leaveShelf();return;}
-  if(!started||e.repeat||sleeping)return;
-  if(!activePanel){
-    if(key==='b'){backpack();return;}if(key==='j'){journal();return;}
-    if(key==='h'){mode==='shelf'?leaveShelf():enterShelf();return;}
-    if(key==='?'||key==='/'){help();return;}
-    if(mode==='beach'){
-      if(key==='e'){interact();return;}
-      if(key==='f'){scan();return;}
-    }
-    if(mode==='shelf'&&(key==='q'||key==='r')){
-      const p=state.shelf.find(i=>i.uid===selectedUid);
-      if(p){p.rotation+=(key==='r'?1:-1)*Math.PI/12;save();syncShelf();}
+window.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (e.target.matches('input,select,textarea')) return;
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key))
+    e.preventDefault();
+  if (k === 'escape') {
+    if (activePanel) closePanel();
+    else if (mode === 'shelf') leaveShelf();
+    return;
+  }
+  if (!started || sleeping) return;
+  if (e.repeat) {
+    keys.add(k);
+    return;
+  }
+  if (!activePanel) {
+    if (k === 'b') return backpack();
+    if (k === 'j') return journal();
+    if (k === 'h') return mode === 'shelf' ? leaveShelf() : enterShelf();
+    if (k === '?' || k === '/') return help();
+    if (mode !== 'shelf') {
+      if (k === 'e') return interact();
+      if (k === 'f') return scan();
+    } else if (k === 'q' || k === 'r') {
+      const p = state.shelf.find((p) => p.uid === selectedUid);
+      if (p) {
+        p.rotation += ((k === 'r' ? 1 : -1) * Math.PI) / 12;
+        save();
+        syncShelf();
+      }
     }
   }
-  keys.add(key);
+  keys.add(k);
 });
-window.addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));
-window.addEventListener('blur',()=>keys.clear());
-document.addEventListener('visibilitychange',()=>{if(document.hidden)keys.clear();});
-const findMeshUid=obj=>{while(obj){if(obj.userData?.placementUid!=null)return obj.userData.placementUid;obj=obj.parent;}return null;};
-function pointed(e){
-  const rect=renderer.domElement.getBoundingClientRect();
-  mouse.set(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1);
-  raycaster.setFromCamera(mouse,shelf.camera);
-  const hits=raycaster.intersectObjects(shelf.displays.children,true);
-  return hits.length?findMeshUid(hits[0].object):null;
-}
-renderer.domElement.addEventListener('pointerdown',e=>{
-  if(mode!=='shelf'||activePanel)return;
-  const uid=pointed(e);selectShelf(uid);
-  if(uid!=null){dragging=true;dragX=e.clientX;dragY=e.clientY;renderer.domElement.setPointerCapture(e.pointerId);}
+window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+window.addEventListener('blur', () => keys.clear());
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) keys.clear();
 });
-renderer.domElement.addEventListener('pointermove',e=>{
-  if(!dragging||mode!=='shelf')return;
-  const p=state.shelf.find(v=>v.uid===selectedUid);if(!p)return;
-  p.x=clamp(p.x+(e.clientX-dragX)*.008,-2.28,2.28);
-  p.z=clamp(p.z+(e.clientY-dragY)*.005,-2.94,-2.42);
-  dragX=e.clientX;dragY=e.clientY;
-  const object=shelf.displays.children.find(v=>v.userData.placementUid===p.uid);
-  if(object)object.position.set(p.x,p.y,p.z);
+function pointerRay(e) {
+  const r = renderer.domElement.getBoundingClientRect();
+  mouse.set(
+    ((e.clientX - r.left) / r.width) * 2 - 1,
+    -((e.clientY - r.top) / r.height) * 2 + 1,
+  );
+  raycaster.setFromCamera(mouse, shelf.camera);
+}
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  if (mode !== 'shelf' || activePanel) return;
+  pointerRay(e);
+  const hit = raycaster
+    .intersectObjects(shelf.displays.children, true)
+    .find((h) => h.object.name !== 'selection');
+  let obj = hit?.object;
+  while (obj && obj.userData.placementUid == null) obj = obj.parent;
+  selectShelf(obj?.userData.placementUid ?? null);
+  if (selectedUid != null) {
+    dragging = true;
+    dragStart = { x: e.clientX, y: e.clientY };
+    renderer.domElement.setPointerCapture(e.pointerId);
+  }
 });
-function stopDrag(){if(dragging){dragging=false;save();}}
-renderer.domElement.addEventListener('pointerup',stopDrag);
-renderer.domElement.addEventListener('pointercancel',stopDrag);
-function move(dt){
-  if(mode!=='beach'||activePanel||sleeping||document.pointerLockElement!==renderer.domElement)return;
-  let forward=Number(keys.has('w')||keys.has('arrowup'))-Number(keys.has('s')||keys.has('arrowdown'));
-  let side=Number(keys.has('d')||keys.has('arrowright'))-Number(keys.has('a')||keys.has('arrowleft'));
-  if(!forward&&!side)return;
-  const speed=(keys.has('shift')?7:4.5)*dt/Math.hypot(forward,side);
-  forward*=speed;side*=speed;
-  const a=beach.camera.rotation.y;
-  const p=beach.camera.position;
-  const nx=clamp(p.x-Math.sin(a)*forward+Math.cos(a)*side,-28,28);
-  const nz=clamp(p.z-Math.cos(a)*forward-Math.sin(a)*side,-22,31);
-  if(nx>-16&&nx<-8.2&&nz>20&&nz<29){return;}
-  p.x=nx;p.z=nz;
+renderer.domElement.addEventListener('pointermove', (e) => {
+  if (!dragging || mode !== 'shelf') return;
+  const p = state.shelf.find((p) => p.uid === selectedUid);
+  if (!p) return;
+  pointerRay(e);
+  const point = new THREE.Vector3();
+  const screenDistance = (slot) => {
+    point.set(slot.x, slot.y + 0.15, slot.z).project(shelf.camera);
+    return (
+      ((point.x - mouse.x) * innerWidth) ** 2 +
+      ((point.y - mouse.y) * innerHeight) ** 2
+    );
+  };
+  const target = shelfSlots(state)
+    .filter((slot) => slotFree(slot, state.shelf, p.uid))
+    .sort((a, b) => screenDistance(a) - screenDistance(b))[0];
+  if (target) {
+    const object = shelf.displays.children.find(
+      (o) => o.userData.placementUid === p.uid,
+    );
+    if (object) object.position.set(target.x, target.y, target.z);
+    dragStart.target = target;
+  }
+});
+function stopDrag() {
+  if (!dragging) return;
+  dragging = false;
+  const p = state.shelf.find((p) => p.uid === selectedUid);
+  if (p && dragStart?.target) Object.assign(p, dragStart.target);
+  save();
+  syncShelf();
 }
-let soundOn=false,audioCtx,oceanSound=null;
-function toggleSound(){
-  soundOn=!soundOn;
-  $('sound').textContent=soundOn?'♫':'♪';
-  $('sound').title=soundOn?'Mute ocean sounds':'Enable ocean sounds';
-  if(soundOn)startOcean();
-  else if(oceanSound){oceanSound.gain.setTargetAtTime(0,audioCtx.currentTime,.3);}
+renderer.domElement.addEventListener('pointerup', stopDrag);
+renderer.domElement.addEventListener('pointercancel', stopDrag);
+function move(dt) {
+  if (
+    mode === 'shelf' ||
+    activePanel ||
+    sleeping ||
+    document.pointerLockElement !== renderer.domElement
+  )
+    return;
+  let f =
+      Number(keys.has('w') || keys.has('arrowup')) -
+      Number(keys.has('s') || keys.has('arrowdown')),
+    s =
+      Number(keys.has('d') || keys.has('arrowright')) -
+      Number(keys.has('a') || keys.has('arrowleft'));
+  if (!f && !s) return;
+  const speed = ((keys.has('shift') ? 7 : 4.5) * dt) / Math.hypot(f, s),
+    camera = currentWorld().camera,
+    a = camera.rotation.y,
+    p = camera.position;
+  const nx = p.x - Math.sin(a) * f * speed + Math.cos(a) * s * speed,
+    nz = p.z - Math.cos(a) * f * speed - Math.sin(a) * s * speed;
+  if (mode === 'cave') {
+    p.x = clamp(nx, -6.2, 6.2);
+    p.z = clamp(nz, -23, 4);
+    return;
+  }
+  if (nx > 14.5 && Math.abs(nz - 1) < 2) {
+    if (owns(state, 'caveAccess')) enterCave();
+    return;
+  }
+  if (nx > 14.5 || nx < -14.5 || nz < -14 || nz > 18) return;
+  if (
+    (nx > -11.2 && nx < -3.8 && nz > 9.5) ||
+    (nx > 4.7 && nx < 10.3 && nz > 10)
+  )
+    return;
+  p.x = nx;
+  p.z = nz;
 }
-function startOcean(){
-  try{
-    audioCtx ||=new(window.AudioContext||window.webkitAudioContext)();
+let soundOn = false,
+  audioCtx,
+  oceanSound,
+  ambientFilter;
+function toggleSound() {
+  soundOn = !soundOn;
+  $('sound').textContent = soundOn ? '♫' : '♪';
+  $('sound').title = soundOn ? 'Mute ambient sounds' : 'Enable ambient sounds';
+  if (soundOn) startOcean();
+  else oceanSound?.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
+}
+function changeAmbience() {
+  if (!audioCtx || !ambientFilter) return;
+  ambientFilter.frequency.setTargetAtTime(
+    mode === 'cave' ? 155 : mode === 'shelf' ? 230 : 380,
+    audioCtx.currentTime,
+    0.5,
+  );
+}
+function startOcean() {
+  try {
+    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
     audioCtx.resume();
-    if(oceanSound){oceanSound.gain.setTargetAtTime(.028,audioCtx.currentTime,.3);return;}
-    const size=audioCtx.sampleRate*3,buffer=audioCtx.createBuffer(1,size,audioCtx.sampleRate),data=buffer.getChannelData(0);
-    for(let i=0;i<size;i++)data[i]=Math.random()*2-1;
-    const source=audioCtx.createBufferSource();source.buffer=buffer;source.loop=true;
-    const lowpass=audioCtx.createBiquadFilter();lowpass.type='lowpass';lowpass.frequency.value=380;
-    const volume=audioCtx.createGain();volume.gain.value=.028;
-    const lfo=audioCtx.createOscillator();lfo.frequency.value=.11;
-    const depth=audioCtx.createGain();depth.gain.value=.013;lfo.connect(depth);depth.connect(volume.gain);
-    source.connect(lowpass);lowpass.connect(volume);volume.connect(audioCtx.destination);
-    source.start();lfo.start();oceanSound=volume;
-  }catch{soundOn=false;}
-}
-function chime(hz,length){
-  if(!audioCtx)return;
-  const oscillator=audioCtx.createOscillator(),volume=audioCtx.createGain();
-  oscillator.type='sine';oscillator.frequency.value=hz;
-  volume.gain.setValueAtTime(.0001,audioCtx.currentTime);
-  volume.gain.exponentialRampToValueAtTime(.035,audioCtx.currentTime+.02);
-  volume.gain.exponentialRampToValueAtTime(.0001,audioCtx.currentTime+length);
-  oscillator.connect(volume);volume.connect(audioCtx.destination);oscillator.start();oscillator.stop(audioCtx.currentTime+length);
-}
-refreshHUD();refreshShelfUI();syncShelf();
-let lastPrompt='';
-function animate(){
-  requestAnimationFrame(animate);
-  const dt=Math.min(clock.getDelta(),.06),t=clock.elapsedTime;
-  if(started)move(dt);
-  const scanning=state.detector&&performance.now()<scanUntil;
-  beach.update(t,scanning);
-  if(started&&mode==='beach'&&!sleeping){
-    near=nearTarget();
-    const prompt=near?.name||'';
-    if(prompt!==lastPrompt){setInteraction(near);lastPrompt=prompt;}
+    if (oceanSound) {
+      oceanSound.gain.setTargetAtTime(0.028, audioCtx.currentTime, 0.3);
+      changeAmbience();
+      return;
+    }
+    const size = audioCtx.sampleRate * 3,
+      buffer = audioCtx.createBuffer(1, size, audioCtx.sampleRate),
+      data = buffer.getChannelData(0);
+    for (let i = 0; i < size; i++) data[i] = Math.random() * 2 - 1;
+    const source = audioCtx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    ambientFilter = audioCtx.createBiquadFilter();
+    ambientFilter.type = 'lowpass';
+    ambientFilter.frequency.value = 380;
+    const volume = audioCtx.createGain();
+    volume.gain.value = 0.028;
+    const lfo = audioCtx.createOscillator();
+    lfo.frequency.value = 0.11;
+    const depth = audioCtx.createGain();
+    depth.gain.value = 0.013;
+    lfo.connect(depth);
+    depth.connect(volume.gain);
+    source.connect(ambientFilter);
+    ambientFilter.connect(volume);
+    volume.connect(audioCtx.destination);
+    source.start();
+    lfo.start();
+    oceanSound = volume;
+    changeAmbience();
+  } catch {
+    soundOn = false;
   }
-  renderer.render(mode==='beach'?beach.scene:shelf.scene,mode==='beach'?beach.camera:shelf.camera);
+}
+function chime(hz, length) {
+  if (!audioCtx) return;
+  const o = audioCtx.createOscillator(),
+    v = audioCtx.createGain();
+  o.type = 'sine';
+  o.frequency.value = hz;
+  v.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+  v.gain.exponentialRampToValueAtTime(0.035, audioCtx.currentTime + 0.02);
+  v.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + length);
+  o.connect(v);
+  v.connect(audioCtx.destination);
+  o.start();
+  o.stop(audioCtx.currentTime + length);
+}
+let nextDrip = 0;
+function caveDrip() {
+  if (!audioCtx || !soundOn) return;
+  const oscillator = audioCtx.createOscillator(),
+    volume = audioCtx.createGain();
+  const echo = audioCtx.createDelay(1),
+    feedback = audioCtx.createGain();
+  oscillator.frequency.setValueAtTime(1200, audioCtx.currentTime);
+  oscillator.frequency.exponentialRampToValueAtTime(
+    480,
+    audioCtx.currentTime + 0.12,
+  );
+  volume.gain.setValueAtTime(0.009, audioCtx.currentTime);
+  volume.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.28);
+  echo.delayTime.value = 0.24;
+  feedback.gain.value = 0.26;
+  oscillator.connect(volume);
+  volume.connect(audioCtx.destination);
+  volume.connect(echo);
+  echo.connect(feedback);
+  feedback.connect(echo);
+  feedback.connect(audioCtx.destination);
+  oscillator.start();
+  oscillator.stop(audioCtx.currentTime + 0.3);
+  setTimeout(() => {
+    volume.disconnect();
+    echo.disconnect();
+    feedback.disconnect();
+  }, 1600);
+}
+refreshHUD();
+refreshShelfUI();
+syncShelf();
+if (new URLSearchParams(location.search).has('gallery')) {
+  started = true;
+  $('overlay').classList.add('hidden');
+  journal(true);
+}
+if (loaded.preview) {
+  started = true;
+  $('overlay').classList.add('hidden');
+  if (preview === 'cave') enterCave();
+  else enterShelf();
+}
+if (loaded.error) setTimeout(() => toast(loaded.error), 200);
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.06),
+    t = clock.elapsedTime;
+  cottageControls.enabled = mode === 'shelf' && !activePanel;
+  if (cottageControls.enabled) cottageControls.update();
+  if (started) move(dt);
+  if (mode === 'beach')
+    beach.update(
+      t,
+      owns(state, 'detector') && performance.now() < scanUntil,
+      owns(state, 'professional') ? 30 : owns(state, 'coil') ? 20 : 12,
+    );
+  if (mode === 'cave') {
+    cave.update(t, owns(state, 'lantern'));
+    if (soundOn && t > nextDrip) {
+      caveDrip();
+      nextDrip = t + 4 + Math.random() * 5;
+    }
+  }
+  if (started && mode !== 'shelf' && !sleeping && !activePanel) {
+    const target = nearTarget(),
+      prompt = target?.name || '';
+    if (prompt !== lastPrompt) {
+      $('interaction').textContent = target ? 'E · ' + prompt : '';
+      $('interaction').classList.toggle('visible', !!target);
+      lastPrompt = prompt;
+    }
+  }
+  const w = mode === 'shelf' ? shelf : currentWorld();
+  renderer.render(w.scene, w.camera);
+  renderMuseum(t);
 }
 animate();

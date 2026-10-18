@@ -1,52 +1,149 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#f6e5d9" />
-  <meta name="description" content="A cozy 3D beachcombing game. Collect shells, find trinkets, and decorate your little seaside cottage." />
-  <title>Trin's Trinkets ✿</title>
-</head>
-<body>
-  <div id="game" aria-label="3D beachcombing world"></div>
-  <div class="scene-vignette"></div>
-  <header class="hud">
-    <div class="brand"><span class="brand-icon">✿</span><span>trin's <b>trinkets</b><small>a little beachcombing story</small></span></div>
-    <div class="hud-right"><div class="save-indicator" id="saveStatus" title="Your collection saves automatically in this browser">✓ saved locally</div><div class="day-indicator">☼ Day <strong id="dayNumber">1</strong></div><div class="money"><span>☀</span> <strong id="balance">0</strong><small>sand dollars</small></div><button class="icon-button" id="sound" aria-label="Toggle ocean sounds" title="Toggle ocean sounds">♫</button></div>
-  </header>
-  <div class="mission" id="mission">Collect a little something lovely ✦</div>
-  <div class="crosshair" id="crosshair">✧</div>
-  <div class="interaction" id="interaction"></div>
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <nav class="quickbar" aria-label="Game menus">
-    <button id="bagButton"><span>🧺</span><b>Backpack</b><small>B</small></button>
-    <button id="journalButton"><span>📖</span><b>Collections</b><small>J</small></button>
-    <button id="shelfButton"><span>🪞</span><b>My cottage</b><small>H</small></button>
-    <button id="helpButton"><span>☼</span><b>How to play</b><small>?</small></button>
-  </nav>
-  <div id="shelfControls" class="shelf-controls hidden">
-    <div class="shelf-heading"><span>✧</span> my treasure shelves <span>✧</span></div>
-    <div class="custom-row"><button id="wallButton">🎨 Wall: Cream</button><button id="woodButton">🪵 Shelf: Maple</button><button id="lightButton">✨ Fairy lights: On</button></div>
-    <p>Drag treasures to arrange · Q / R rotates selected treasure · Select a treasure to remove it</p>
-    <div class="shelf-actions"><button id="addShelfButton">+ Place a treasure</button><button id="removeShelfButton" disabled>Remove selected</button><button id="sleepButton">🌙 Sleep until morning</button><button id="beachButton">← Back to the beach</button></div>
-  </div>
-  <div id="sleepScreen" class="sleep-screen hidden"><div class="sleep-content"><div class="sleep-moon">☾</div><div id="sleepMessage">The waves whisper goodnight...</div><small id="sleepDay">Day 1</small></div></div>
-  <div id="overlay" class="overlay">
-    <section class="welcome">
-      <div class="mini-sun">☼</div>
-      <p class="eyebrow">the tide brought you here</p>
-      <h1>trin's<br/><em>trinkets</em><span>✿</span></h1>
-      <p class="welcome-copy">A pocket full of seashells, a little cottage to call your own, and a whole beach of lovely things waiting to be found.</p>
-      <button id="startButton" class="primary">Let's go beachcombing <span>→</span></button>
-      <p class="welcome-foot">a cozy little game · made with love ♡</p>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f6e5d9" />
+    <meta
+      name="description"
+      content="A cozy 3D beachcombing game. Collect shells, find trinkets, and decorate your little seaside cottage."
+    />
+    <title>Trin's Trinkets ✿</title>
+  </head>
+  <body>
+    <div id="game" aria-label="3D beachcombing world"></div>
+    <div class="scene-vignette"></div>
+    <header class="hud">
+      <div class="brand">
+        <span class="brand-icon">✿</span
+        ><span
+          >trin's <b>trinkets</b
+          ><small>a little beachcombing story</small></span
+        >
+      </div>
+      <div class="hud-right">
+        <div
+          class="save-indicator"
+          id="saveStatus"
+          title="Your collection saves automatically in this browser"
+        >
+          ✓ saved locally
+        </div>
+        <div class="day-indicator">☼ Day <strong id="dayNumber">1</strong></div>
+        <div class="money">
+          <span>☀</span> <strong id="balance">0</strong
+          ><small>sand dollars</small>
+        </div>
+        <button
+          class="icon-button"
+          id="sound"
+          aria-label="Toggle ocean sounds"
+          title="Toggle ocean sounds"
+        >
+          ♫
+        </button>
+      </div>
+    </header>
+    <div class="mission" id="mission">Collect a little something lovely ✦</div>
+    <div class="crosshair" id="crosshair">✧</div>
+    <div class="interaction" id="interaction"></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <nav class="quickbar" aria-label="Game menus">
+      <button id="bagButton">
+        <span>🧺</span><b>Backpack</b><small>B</small>
+      </button>
+      <button id="journalButton">
+        <span>📖</span><b>Collections</b><small>J</small>
+      </button>
+      <button id="shelfButton">
+        <span>🪞</span><b>My cottage</b><small>H</small>
+      </button>
+      <button id="helpButton">
+        <span>☼</span><b>How to play</b><small>?</small>
+      </button>
+      <button id="exchangeButton">
+        <span>☀</span><b>Exchange</b><small>tools & cottage</small>
+      </button>
+    </nav>
+    <div id="shelfControls" class="shelf-controls hidden">
+      <div class="shelf-heading">
+        <span>✧</span> my treasure shelves <span>✧</span>
+      </div>
+      <div class="custom-row">
+        <button id="wallButton">🎨 Wall: Cream</button
+        ><button id="woodButton">🪵 Shelf: Maple</button
+        ><button id="lightButton">✨ Fairy lights: On</button
+        ><button id="decorateButton">✿ Decorate</button
+        ><button id="paintingButton">🖌 Painting studio</button>
+      </div>
+      <p>
+        Drag treasures to arrange · Q / R to turn · Scroll to zoom · Right-drag
+        to pan
+      </p>
+      <label class="shelf-view-label"
+        >View
+        <select id="shelfView">
+          <option value="main">Main shelves</option>
+          <option value="left">Left shelves</option>
+          <option value="right">Right shelves</option>
+          <option value="cabinet">Glass cabinet</option>
+          <option value="sunroom">Sunroom</option>
+          <option value="upper">Deluxe gallery</option>
+          <option value="overview">Whole cottage</option>
+        </select></label
+      >
+      <div class="shelf-actions">
+        <button id="addShelfButton">+ Place a treasure</button
+        ><button id="removeShelfButton" disabled>Remove selected</button
+        ><button id="sleepButton">🌙 Sleep until morning</button
+        ><button id="beachButton">← Back to the beach</button>
+      </div>
+    </div>
+    <div id="sleepScreen" class="sleep-screen hidden">
+      <div class="sleep-content">
+        <div class="sleep-moon">☾</div>
+        <div id="sleepMessage">The waves whisper goodnight...</div>
+        <small id="sleepDay">Day 1</small>
+      </div>
+    </div>
+    <div id="overlay" class="overlay">
+      <section class="welcome">
+        <div class="mini-sun">☼</div>
+        <p class="eyebrow">the tide brought you here</p>
+        <h1>trin's<br /><em>trinkets</em><span>✿</span></h1>
+        <p class="welcome-copy">
+          A pocket full of seashells, a little cottage to call your own, and a
+          whole beach of lovely things waiting to be found.
+        </p>
+        <button id="startButton" class="primary">
+          Let's go beachcombing <span>→</span>
+        </button>
+        <p class="welcome-foot">a cozy little game · made with love ♡</p>
+      </section>
+    </div>
+    <div id="panelBackdrop" class="panel-backdrop hidden"></div>
+    <div id="discovery" class="discovery hidden" role="status"></div>
+    <section
+      id="panel"
+      class="panel hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Game menu"
+    >
+      <header class="panel-header">
+        <div>
+          <div class="eyebrow" id="panelEyebrow">your little treasures</div>
+          <h2 id="panelTitle">Collections</h2>
+        </div>
+        <button id="closePanel" class="close-button" aria-label="Close">
+          ×
+        </button>
+      </header>
+      <div id="panelContent" class="panel-content"></div>
     </section>
-  </div>
-  <div id="panelBackdrop" class="panel-backdrop hidden"></div>
-  <section id="panel" class="panel hidden" role="dialog" aria-modal="true" aria-label="Game menu">
-    <header class="panel-header"><div><div class="eyebrow" id="panelEyebrow">your little treasures</div><h2 id="panelTitle">Collections</h2></div><button id="closePanel" class="close-button" aria-label="Close">×</button></header>
-    <div id="panelContent" class="panel-content"></div>
-  </section>
-  <footer class="tips" id="tips">WASD move · E collect · F detector · H cottage · sleep for a new tide</footer>
-  <script type="module" src="/src/main.js"></script>
-</body>
+    <footer class="tips" id="tips">
+      WASD move · E collect · F detector · H cottage · sleep for a new tide
+    </footer>
+    <script type="module" src="/src/main.js"></script>
+  </body>
 </html>
