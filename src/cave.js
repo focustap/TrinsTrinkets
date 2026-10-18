@@ -1,5 +1,6 @@
 import * as T from 'three';
 import { createTreasure } from './treasures.js';
+import { createRockPassage } from './passage.js';
 const V = (x, y, z) => new T.Vector3(x, y, z);
 export function createCaveScene() {
   const scene = new T.Scene();
@@ -128,12 +129,34 @@ export function createCaveScene() {
   }
   mossTufts.instanceMatrix.needsUpdate = true;
   for (let j = 0; j < 8; j++) {
+    if (Math.abs(-7 + j * 2) < 3.2) continue;
     const boulder = new T.Mesh(new T.SphereGeometry(2, 16, 12), rock);
     boulder.position.set(-7 + j * 2, Math.sin(j) * 0.3, -25);
     boulder.scale.set(1.2, 1.3, 1);
     scene.add(boulder);
   }
   const waters = [];
+  const moonpoolPassage = createRockPassage({ glowing: true });
+  moonpoolPassage.group.position.set(0, 0, -23.5);
+  scene.add(moonpoolPassage.group);
+  for (const sign of [-1, 1]) {
+    const bloom = createTreasure(
+      {
+        id: 'moonpool-passage-hint-' + sign,
+        type: 'coral',
+        color: sign < 0 ? '#dfb0d4' : '#9edbcc',
+        visual: {
+          variant: 7,
+          motif: 'branches',
+          accent: '#cbd9ed',
+          profile: 1,
+        },
+      },
+      1.7,
+    );
+    bloom.position.set(sign * 2.5, 0.1, -24.3);
+    scene.add(bloom);
+  }
   for (const [x, z, r] of [
     [-4, -7, 1.6],
     [4, -16, 2],
@@ -180,7 +203,8 @@ export function createCaveScene() {
   function clearFinds() {
     for (const g of [...finds]) remove(g);
   }
-  function update(t, hasLantern) {
+  function update(t, hasLantern, dt = 0.016) {
+    moonpoolPassage.update(dt);
     lantern.position.copy(camera.position);
     lantern.intensity = hasLantern ? 10 : 3;
     for (let j = 0; j < glows.length; j++)
@@ -196,6 +220,7 @@ export function createCaveScene() {
     remove,
     clearFinds,
     update,
-    stations: { exit: V(0, 0, 3) },
+    moonpoolPassage,
+    stations: { exit: V(0, 0, 3), moonpool: V(0, 0, -21.8) },
   };
 }

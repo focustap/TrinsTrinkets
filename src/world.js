@@ -3,6 +3,8 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { createTreasure } from './treasures.js';
 import { shelfSlots } from './shelves.js';
 import { owns, SHOP_COLORS, WOODS } from './progression.js';
+import { createRockPassage } from './passage.js';
+import { createRewardDecor } from './reward-art.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const box = (w, h, d, material, x = 0, y = 0, z = 0) => {
@@ -42,6 +44,14 @@ function sign(
   w = 2.8,
   h = 0.66,
 ) {
+  if (typeof document === 'undefined') {
+    const face = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({ color: background }),
+    );
+    face.rotation.y = Math.PI;
+    return face;
+  }
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 128;
@@ -71,6 +81,7 @@ function sign(
 }
 
 function sandTexture() {
+  if (typeof document === 'undefined') return null;
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const g = c.getContext('2d');
@@ -331,6 +342,8 @@ export function createBeachScene() {
       const z = -16 + i * 1.54 + (Math.random() - 0.5) * 0.7;
       const x = side * (16 + Math.sin(i * 0.47) * 1.3 + Math.random() * 0.5);
       const radius = 1.45 + Math.random() * 1.4;
+      if (side === 1 && z + radius * 1.65 > -1.6 && z - radius * 1.65 < 3.6)
+        continue;
       const stone = ball(radius, rockMats[i % 3], x, radius * 0.36, z, 9);
       stone.scale.set(1.15, 0.6, 1.0 + Math.random() * 0.4);
       stone.rotation.y = Math.random() * 3;
@@ -395,19 +408,35 @@ export function createBeachScene() {
   // A fenced trail ends in a dark, moss-lit opening in the east cliff.
   const cavePath = new THREE.Group();
   scene.add(cavePath);
-  for (let j = 0; j < 9; j++) {
-    const rock = ball(
-      1.1,
+  const entrance = createRockPassage();
+  entrance.group.position.set(16.7, 0, 1);
+  entrance.group.rotation.y = -Math.PI / 2;
+  cavePath.add(entrance.group);
+  for (let j = 0; j < 5; j++) {
+    const cap = ball(
+      1.5,
       rockMats[j % 3],
-      17 + Math.sin((j / 8) * Math.PI) * 2.6,
-      0.3 + Math.sin((j / 8) * Math.PI) * 3,
-      1 + (j % 2) * 0.15,
+      18.4,
+      4.2 + Math.sin(j) * 0.25,
+      -2.4 + j * 1.65,
       16,
     );
-    rock.scale.set(1, 1.15, 0.8);
-    cavePath.add(rock);
+    cap.scale.set(1.3, 0.75, 1.1);
+    cavePath.add(cap);
   }
-  cavePath.add(box(4, 3.6, 0.1, mat('#3a4d58'), 18, 1.5, 1.8));
+  for (const z of [-3.2, 5.2])
+    for (let j = 0; j < 3; j++) {
+      const stone = ball(
+        1.5,
+        rockMats[j % 3],
+        17 + j * 0.8,
+        0.65 + j * 0.2,
+        z,
+        16,
+      );
+      stone.scale.set(1, 0.8, 1);
+      cavePath.add(stone);
+    }
   for (const z of [-1, 3])
     for (let x = 12; x < 18; x += 1.2) {
       cavePath.add(box(0.12, 1.25, 0.12, mat('#b29a83'), x, 0.62, z));
@@ -432,11 +461,14 @@ export function createBeachScene() {
     }),
     17.5,
     0.4,
-    1,
+    2.6,
   );
   cavePath.add(moss);
-  const setGate = (open) => {
-    gate.rotation.y = open ? Math.PI / 2 : 0;
+  moss.scale.set(1.4, 0.3, 1.1);
+  const setGate = (open, animate = false) => {
+    entrance.setOpen(open, animate);
+    gate.userData.open = open;
+    gate.rotation.y = animate ? gate.rotation.y : open ? Math.PI / 2 : 0;
   };
   const finds = [];
   function spawn(item, method, x, z, uid) {
@@ -500,7 +532,9 @@ export function createBeachScene() {
   function clearFinds() {
     for (const g of [...finds]) remove(g);
   }
-  function update(t, scan, scanRange = 12) {
+  function update(t, scan, scanRange = 12, dt = 0.016) {
+    entrance.update(dt);
+    gate.rotation.y = (entrance.progress * Math.PI) / 2;
     const pos = oceanGeo.attributes.position;
     for (let i = 0; i < pos.count; i++) {
       const x = base[i * 3],
@@ -535,6 +569,7 @@ export function createBeachScene() {
     clearFinds,
     update,
     setGate,
+    entrance,
     stations: { cottage, exchange, cave: V(14, 0, 1) },
   };
 }
@@ -807,6 +842,8 @@ export function createShelfScene() {
   }
   const additions = new THREE.Group();
   scene.add(additions);
+  let rewardDecor = createRewardDecor({ rewardDecor: [] });
+  scene.add(rewardDecor);
   let wallpaperTexture = null,
     floorTexture = null,
     artTexture = null;
@@ -940,13 +977,24 @@ export function createShelfScene() {
     );
     fill.color.set(s.lighting === 'moon' ? '#c2c9f2' : '#ffd8bd');
     // Only rebuild purchased furnishing geometry when the ownership set changes.
-    const signature = JSON.stringify(s.purchases);
+    const signature = JSON.stringify([
+      s.purchases,
+      s.rewardDecor,
+      s.disabledRewards,
+    ]);
     if (additions.userData.signature !== signature) {
       additions.traverse((o) => {
         if (o.isMesh) o.geometry.dispose();
       });
       additions.clear();
       additions.userData.signature = signature;
+      scene.remove(rewardDecor);
+      rewardDecor.traverse((o) => {
+        if (o.isMesh && !o.userData.sharedTreasureGeometry)
+          o.geometry.dispose();
+      });
+      rewardDecor = createRewardDecor(s);
+      scene.add(rewardDecor);
       const extra = shelfSlots(s).slice(18),
         rows = new Map();
       for (const p of extra) {
@@ -1091,5 +1139,6 @@ export function createShelfScene() {
     heights,
     customize,
     setArtwork,
+    update: (t) => rewardDecor.userData.update(t),
   };
 }

@@ -1,6 +1,6 @@
 import { UPGRADES, SHOP_COLORS, WOODS } from './progression.js';
 export const SAVE_KEY = 'trins-trinkets-save-v1',
-  SAVE_VERSION = 2;
+  SAVE_VERSION = 3;
 export const fresh = () => ({
   version: SAVE_VERSION,
   coins: 0,
@@ -26,6 +26,10 @@ export const fresh = () => ({
   day: 1,
   beachFinds: null,
   caveFinds: null,
+  moonpoolFinds: null,
+  biome: 'beach',
+  rewardDecor: [],
+  disabledRewards: [],
 });
 const strings = (x) =>
   Array.isArray(x) ? [...new Set(x.filter((v) => typeof v === 'string'))] : [];
@@ -48,6 +52,11 @@ export function migrateSave(raw) {
   s.claimed = strings(raw.claimed);
   s.equipment = strings(raw.equipment);
   s.purchases = strings(raw.purchases);
+  s.rewardDecor = strings(raw.rewardDecor);
+  s.disabledRewards = strings(raw.disabledRewards);
+  s.biome = ['beach', 'cave', 'moonpool'].includes(raw.biome)
+    ? raw.biome
+    : 'beach';
   for (const u of UPGRADES)
     if (raw[u.id] && !s.equipment.includes(u.id)) s.equipment.push(u.id);
   s.shovel = !!raw.shovel || s.equipment.includes('shovel');
@@ -67,7 +76,7 @@ export function migrateSave(raw) {
         )
         .map((p) => ({ ...p, rotation: finite(p.rotation) }))
     : [];
-  for (const key of ['beachFinds', 'caveFinds']) {
+  for (const key of ['beachFinds', 'caveFinds', 'moonpoolFinds']) {
     if (raw[key] == null) s[key] = null;
     else if (!Array.isArray(raw[key]))
       throw new Error('The saved tide cannot be read safely.');

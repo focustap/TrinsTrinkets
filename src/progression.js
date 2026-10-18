@@ -1,3 +1,6 @@
+import { ITEMS } from './catalog.js';
+export const caveDiscoveryCount = (s) =>
+  new Set(s.discovered.filter((id) => ITEMS[id]?.environment === 'cave')).size;
 export const UPGRADES = [
   {
     id: 'pouch',
@@ -92,6 +95,31 @@ export const UPGRADES = [
     detail: 'Open crystal seams and ancient relic deposits.',
   },
 ];
+UPGRADES.push(
+  {
+    id: 'moonpoolAccess',
+    name: 'Moonpool Access',
+    cost: 12000,
+    requires: ['caveAccess', 'pick'],
+    caveUnique: 15,
+    detail:
+      'Open the luminous passage after discovering 15 different cave-native treasures.',
+  },
+  {
+    id: 'pearlBrush',
+    name: 'Moonpearl Brush',
+    cost: 900,
+    requires: ['moonpoolAccess'],
+    detail: 'Gently uncover two extra pearl beds in each Moonpool tide.',
+  },
+  {
+    id: 'crystalScoop',
+    name: 'Opal Crystal Scoop',
+    cost: 1600,
+    requires: ['moonpoolAccess'],
+    detail: 'Reveal two intricate crystal deposits per Moonpool tide.',
+  },
+);
 export const SHOP_COLORS = {
   cream: '#fff0df',
   blush: '#f7d7d9',
@@ -286,7 +314,11 @@ export function purchaseReason(s, u) {
     );
   if (u.unique && new Set(s.discovered).size < u.unique)
     return `Discover ${u.unique} unique treasures`;
-  return !s.devInfiniteMoney && s.coins < u.cost ? 'Not enough sand dollars' : '';
+  if (u.caveUnique && caveDiscoveryCount(s) < u.caveUnique)
+    return `Discover ${u.caveUnique} different cave treasures (${caveDiscoveryCount(s)}/${u.caveUnique})`;
+  return !s.devInfiniteMoney && s.coins < u.cost
+    ? 'Not enough sand dollars'
+    : '';
 }
 export function purchase(s, id) {
   const u = [...UPGRADES, ...DECOR].find((x) => x.id === id);
@@ -306,5 +338,6 @@ export const equipmentState = (s) =>
 export const canDiscover = (s, m) =>
   m === 'surface' ||
   (m === 'cave' && owns(s, 'caveAccess')) ||
+  (m === 'moonpool' && owns(s, 'moonpoolAccess')) ||
   owns(s, m) ||
   (m === 'probe' && owns(s, 'detector'));

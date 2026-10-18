@@ -34,7 +34,8 @@ export function eligibleItems(
       (methods || [method]).includes(i.method) &&
       (i.rarity !== 'Mythic' ||
         environment !== 'cave' ||
-        (equipment.caveAccess && equipment.pick)),
+        (equipment.caveAccess && equipment.pick)) &&
+      (environment !== 'moonpool' || equipment.moonpoolAccess),
   );
 }
 export function rollTreasure(catalog, pool, rng = Math.random) {

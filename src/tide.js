@@ -1,6 +1,7 @@
 import { CATALOG, ITEMS } from './catalog.js';
 import { rollTreasure } from './rarity.js';
 import { equipmentState, canDiscover } from './progression.js';
+import { BIOMES, MOONPOOL_SITES } from './locations.js';
 export function generateTide(state, environment = 'beach', rng = Math.random) {
   const equipment = equipmentState(state),
     finds = [];
@@ -37,20 +38,33 @@ export function generateTide(state, environment = 'beach', rng = Math.random) {
               : ['brush', 'sifter', 'trowel', 'detector'][i],
           ),
         ]
-      : [
-          'cave',
-          'cave',
-          'cave',
-          'cave',
-          'cave',
-          'cave',
-          'brush',
-          'lantern',
-          'lantern',
-          'pick',
-          'pick',
-          'pick',
-        ];
+      : environment === 'moonpool'
+        ? [
+            'moonpool',
+            'moonpool',
+            'moonpool',
+            'moonpool',
+            'moonpool',
+            'moonpool',
+            'pearlBrush',
+            'pearlBrush',
+            'crystalScoop',
+            'crystalScoop',
+          ]
+        : [
+            'cave',
+            'cave',
+            'cave',
+            'cave',
+            'cave',
+            'cave',
+            'brush',
+            'lantern',
+            'lantern',
+            'pick',
+            'pick',
+            'pick',
+          ];
   for (const [i, method] of methods.entries()) {
     // Specialized tools also uncover ordinary finds. This keeps a detector's pool
     // broad enough that its exclusive Mythics never become a large fraction of rolls.
@@ -61,7 +75,9 @@ export function generateTide(state, environment = 'beach', rng = Math.random) {
           : method === 'shovel'
             ? ['surface', 'shovel']
             : ['surface', 'shovel', method, ...special]
-        : ['cave', method];
+        : environment === 'moonpool'
+          ? ['moonpool', method]
+          : ['cave', method];
     const item = rollTreasure(
       CATALOG,
       { method, methods, environment, equipment },
@@ -83,8 +99,8 @@ export function generateTide(state, environment = 'beach', rng = Math.random) {
       uid: `${environment}-${state.day}-${i}-${Math.floor(rng() * 1e8)}`,
       itemId: item.id,
       method,
-      x,
-      z,
+      x: environment === 'moonpool' ? MOONPOOL_SITES[i][0] : x,
+      z: environment === 'moonpool' ? MOONPOOL_SITES[i][1] : z,
     });
   }
   return finds;
@@ -92,15 +108,22 @@ export function generateTide(state, environment = 'beach', rng = Math.random) {
 export function ensureTides(s, rng = Math.random) {
   if (s.beachFinds === null) s.beachFinds = generateTide(s, 'beach', rng);
   if (s.caveFinds === null) s.caveFinds = generateTide(s, 'cave', rng);
+  // A sealed Moonpool has no generated loot. Its first tide is created once on
+  // unlock; afterwards even an empty array remains empty until sleeping.
+  if (s.moonpoolFinds === null && canDiscover(s, 'moonpool'))
+    s.moonpoolFinds = generateTide(s, 'moonpool', rng);
 }
 export function advanceDay(s, rng = Math.random) {
   s.day = Math.min(99999, s.day + 1);
   s.beachFinds = generateTide(s, 'beach', rng);
   s.caveFinds = generateTide(s, 'cave', rng);
+  if (canDiscover(s, 'moonpool'))
+    s.moonpoolFinds = generateTide(s, 'moonpool', rng);
 }
 export function takeFind(s, uid, environment) {
-  const key = environment === 'cave' ? 'caveFinds' : 'beachFinds',
-    index = s[key].findIndex((f) => f.uid === uid);
+  const key = BIOMES[environment]?.finds,
+    pool = s[key],
+    index = pool?.findIndex((f) => f.uid === uid) ?? -1;
   if (index < 0) return null;
   const f = s[key][index],
     item = ITEMS[f.itemId];

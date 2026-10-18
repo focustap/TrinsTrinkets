@@ -57,7 +57,7 @@ for (const item of CATALOG) {
     vertexCount += positions.count;
   });
 }
-assert.equal(CATALOG.length, 200, 'all catalog items should be tested');
+assert.equal(CATALOG.length, 230, 'all catalog items should be tested');
 console.log(
   'Verified',
   CATALOG.length,
@@ -138,5 +138,5 @@ for (const item of CATALOG) {
   }
 }
 console.log(
-  'Verified all 96 physical shelf surfaces, artwork texture, and rotation clearance for 200 models.',
+  'Verified all 96 physical shelf surfaces, artwork texture, and rotation clearance for 230 models.',
 );

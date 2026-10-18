@@ -1,5 +1,26 @@
 import { fresh } from './save.js';
 import { ensureTides } from './tide.js';
+import { CATALOG } from './catalog.js';
+import { owns } from './progression.js';
+export function grantBiomeAccess(s) {
+  for (const id of [
+    'shovel',
+    'trowel',
+    'caveAccess',
+    'lantern',
+    'pick',
+    'moonpoolAccess',
+  ]) {
+    if (!s.equipment.includes(id)) s.equipment.push(id);
+    s[id] = true;
+  }
+  for (const item of CATALOG.filter((i) => i.environment === 'cave').slice(
+    0,
+    15,
+  ))
+    if (!s.discovered.includes(item.id)) s.discovered.push(item.id);
+  ensureTides(s);
+}
 
 // Local developer conveniences. These are not an access-control or cheat-protection system.
 export const DEV_SEQUENCE = 'pearl';
@@ -26,6 +47,11 @@ export function devMenuHtml(state) {
       <button class="button-soft" data-action="export">Export current save</button>
     </div>
     <p class="tiny">Infinite money ignores shop prices but keeps collection and equipment unlock requirements. Turning it off returns to your actual saved balance.</p>
+    <div class="divider"></div><h3>Biome playtesting</h3>
+    <p class="tiny">Granting access changes this save: tools, cave access, 15 cave discoveries and Moonpool access. Travel preserves every daily find.</p>
+    <button class="button-soft" data-action="dev-grant-biomes">Grant cave & Moonpool access</button>
+    <div class="dev-row">${['beach', 'gate', 'cave', 'passage', 'moonpool'].map((id) => `<button class="button-soft" data-action="dev-travel" data-id="${id}" ${id !== 'beach' && id !== 'gate' && !owns(state, id === 'moonpool' ? 'moonpoolAccess' : 'caveAccess') ? 'disabled' : ''}>${{ beach: 'Beach', gate: 'Beach entrance', cave: 'Cave', passage: 'Moonpool passage', moonpool: 'Moonpool' }[id]}</button>`).join('')}</div>
+    <p class="tiny">Unsaved visual fixtures (your real save is untouched):</p><div class="dev-row">${['entrance-locked', 'entrance-open', 'passage-locked', 'passage-ready', 'moonpool', 'milestones'].map((id) => `<button class="button-soft" data-action="dev-preview" data-id="${id}">${id}</button>`).join('')}<button class="button-soft" data-action="dev-exit-preview">Return to saved game</button></div>
     <div class="divider"></div>
     <h3>Fresh start</h3>
     <p class="lead">Reset everything to Day 1 with zero money: discoveries, inventory, equipment, cave, house upgrades, shelf displays, paintings, and the daily tide. Infinite money turns off too.</p>

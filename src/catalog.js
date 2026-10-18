@@ -1,6 +1,7 @@
 import { CATALOG as ORIGINAL } from './legacy-catalog.js';
 import { rollTreasure } from './rarity.js';
 import { LORE } from './lore.js';
+import { MOONPOOL_CATALOG } from './moonpool-catalog.js';
 export const SETS = [
   'Shells',
   'Sea Glass',
@@ -9,6 +10,7 @@ export const SETS = [
   'Lost Treasures',
   'Cave Crystals',
   'Cave Relics',
+  'Moonpool Wonders',
 ];
 export const COLLECTION_NAMES = [
   'Seashells & Coastal Shells',
@@ -18,8 +20,9 @@ export const COLLECTION_NAMES = [
   'Lost Treasures & Keepsakes',
   'Cave Crystals & Minerals',
   'Cave Fossils & Relics',
+  'Moonpool Wonders',
 ];
-export const COLLECTION_COUNTS = [40, 26, 34, 28, 24, 28, 20];
+export const COLLECTION_COUNTS = [40, 26, 34, 28, 24, 28, 20, 30];
 const R = {
   C: 'Common',
   U: 'Uncommon',
@@ -252,7 +255,7 @@ export const CATALOG = ORIGINAL.map((i, n) =>
     n,
   ),
 );
-for (let s = 0; s < SETS.length; s++)
+for (let s = 0; s < rows.length; s++)
   for (const line of rows[s].split('\n')) {
     const [id, name, type, color, r, method, motif, variant] = line.split('|');
     CATALOG.push(
@@ -276,6 +279,7 @@ for (let s = 0; s < SETS.length; s++)
       ),
     );
   }
+CATALOG.push(...MOONPOOL_CATALOG);
 export const ITEMS = Object.fromEntries(CATALOG.map((i) => [i.id, i]));
 export { UPGRADES, SHOP_COLORS, WOODS } from './progression.js';
 export const pickRandom = (
