@@ -5,7 +5,8 @@ import {createBeachScene,createShelfScene} from './world.js';
 
 const $ = id => document.getElementById(id);
 const KEY = 'trins-trinkets-save-v1';
-const fresh = () => ({coins:0,bag:{},discovered:[],claimed:[],shovel:false,detector:false,shelf:[],wall:'cream',wood:'maple',lights:true});
+const clampDay = day=>Math.max(1,Math.min(99999,day));
+const fresh = () => ({coins:0,bag:{},discovered:[],claimed:[],shovel:false,detector:false,shelf:[],wall:'cream',wood:'maple',lights:true,day:1,beachFinds:null});
 function load(){
   try {
     const s=JSON.parse(localStorage.getItem(KEY)||'null');
@@ -17,6 +18,12 @@ function load(){
     d.discovered=Array.isArray(s.discovered)?s.discovered.filter(id=>!!ITEMS[id]):[];
     d.claimed=Array.isArray(s.claimed)?s.claimed.filter(id=>SETS.includes(id)):[];
     d.shovel=!!s.shovel;d.detector=!!s.detector;
+    d.day=Number.isSafeInteger(s.day)?clampDay(s.day):1;
+    d.beachFinds=Array.isArray(s.beachFinds)?
+      s.beachFinds.filter(f=>ITEMS[f?.itemId]&&['surface','shovel','detector'].includes(f.method)&&
+        Number.isFinite(f.x)&&Number.isFinite(f.z)&&f.x>=-13.5&&f.x<=13.5&&f.z>=-13&&f.z<=6.5&&
+        ITEMS[f.itemId].method===f.method&&typeof f.uid==='string')
+        .slice(0,18).map(f=>({uid:f.uid,itemId:f.itemId,method:f.method,x:f.x,z:f.z})):null;
     d.wall=SHOP_COLORS[s.wall]?s.wall:'cream';d.wood=WOODS[s.wood]?s.wood:'maple';d.lights=s.lights!==false;
     d.shelf=Array.isArray(s.shelf)?s.shelf.filter(p=>ITEMS[p.itemId]&&Number.isFinite(p.x)&&Number.isFinite(p.y)&&Number.isFinite(p.z)&&Number.isFinite(p.uid)).slice(0,18).map(p=>({
       uid:p.uid,itemId:p.itemId,x:Math.max(-2.28,Math.min(2.28,p.x)),
@@ -39,7 +46,7 @@ $('game').appendChild(renderer.domElement);
 renderer.domElement.tabIndex=0;
 const raycaster=new THREE.Raycaster(),mouse=new THREE.Vector2();
 const clock=new THREE.Clock();
-let mode='beach',started=false,activePanel='',tab='All',near=null,toastTimer=0,scanUntil=0,selectedUid=null,dragging=false,dragX=0,dragY=0;
+let mode='beach',started=false,activePanel='',tab='All',near=null,toastTimer=0,scanUntil=0,selectedUid=null,dragging=false,dragX=0,dragY=0,sleeping=false;
 const keys=new Set();
 const yAxis=new THREE.Vector3(0,1,0);
 const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
@@ -55,40 +62,54 @@ const iconFor=i=>({
 })[i.type]||'✧';
 function refreshHUD(){
   $('balance').textContent=money(state.coins);
+  $('dayNumber').textContent=state.day;
   const u=uniqueCount();
-  $('mission').textContent=!u?'Find your first little treasure ✦':!state.shovel?
-    'Collect treasures & save up for a shovel ✿':!state.detector?
-    'Try digging up hidden treasures · shovel unlocked ✧':
-    'Scan the sand with F · '+u+'/'+CATALOG.length+' treasures found ✦';
+  const remaining=state.beachFinds?.filter(f=>f.method==='surface' ||
+    (f.method==='shovel'&&state.shovel)||(f.method==='detector'&&state.detector)).length||0;
+  $('mission').textContent=remaining===0?'The beach is quiet now · sleep for a fresh tide 🌙':
+    !u?'Find your first little treasure ✦':!state.shovel?
+    'Find treasures, then buy a shovel ✿':!state.detector?
+    'Look for small sand mounds · '+remaining+' finds left':
+    'Scan with F · '+remaining+' finds left today ✦';
 }
 function toast(message){
   const el=$('toast');el.textContent=message;el.classList.add('show');
   clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),2800);
 }
-function respawnMethod(method,n){
-  for(let i=0;i<n;i++)spawnOne(method);
-}
+// The tide is fixed for each day and persisted. Reloading cannot generate free new loot.
 function spawnOne(method) {
   const item=pickRandom(method);
   let x,z,attempt=0;
   do {
-    x=(Math.random()-.5)*45;z=-16+Math.random()*30;attempt++;
-  }while(attempt<30&&(
-    Math.hypot(x-13,z-16)<4.4||Math.hypot(x+12,z-18.6)<4.3||
-    Math.hypot(x-beach.camera.position.x,z-beach.camera.position.z)<3||
-    beach.finds.some(f=>Math.hypot(f.position.x-x,f.position.z-z)<1.6)
+    x=(Math.random()-.5)*25.5;z=-12.5+Math.random()*19;attempt++;
+  }while(attempt<70&&(
+    Math.hypot(x-7.5,z-8.2)<3.2||Math.hypot(x+7.5,z-7.9)<3.2||
+    Math.hypot(x-beach.camera.position.x,z-beach.camera.position.z)<2||
+    state.beachFinds.some(f=>Math.hypot(f.x-x,f.z-z)<1.55)
   ));
-  beach.spawn(item,method,x,z);
+  const uid=state.day+'-'+state.beachFinds.length+'-'+Math.floor(Math.random()*1000000);
+  const find={uid,itemId:item.id,method,x,z};
+  state.beachFinds.push(find);
+  beach.spawn(item,method,x,z,uid);
 }
-respawnMethod('surface',25);
-if(state.shovel)respawnMethod('shovel',13);
-if(state.detector)respawnMethod('detector',10);
+function newTide(){
+  beach.clearFinds();
+  state.beachFinds=[];
+  // A handful of treasures per day keeps the cove inviting rather than cluttered.
+  for(const [method,n] of [['surface',9],['shovel',5],['detector',4]])
+    for(let i=0;i<n;i++)spawnOne(method);
+  save();
+  refreshHUD();
+}
+if(state.beachFinds===null)newTide();
+else for(const f of state.beachFinds)beach.spawn(ITEMS[f.itemId],f.method,f.x,f.z,f.uid);
 function collect(find){
   const {item,method}=find.userData.find;
   if(method==='shovel'&&!state.shovel)return toast('A little shovel would help here!');
   if(method==='detector'&&!state.detector)return;
   if(method==='detector'&&performance.now()>scanUntil)return toast('Press F to scan for buried treasures.');
   beach.remove(find);
+  state.beachFinds=state.beachFinds.filter(f=>f.uid!==find.userData.find.uid);
   state.bag[item.id]=(state.bag[item.id]||0)+1;
   const first=!state.discovered.includes(item.id);
   if(first)state.discovered.push(item.id);
@@ -102,7 +123,6 @@ function collect(find){
     }
   }
   save();refreshHUD();
-  setTimeout(()=>{if(started)spawnOne(method);},5000+Math.random()*5500);
 }
 function nearTarget() {
   const pos=beach.camera.position,dxz=p=>Math.hypot(pos.x-p.x,pos.z-p.z);
@@ -135,7 +155,7 @@ function interact(){
   if(!started||mode!=='beach'||activePanel)return;
   const target=nearTarget();if(!target)return;
   if(target.kind==='find')collect(target.find);
-  if(target.kind==='exchange')openPanel('exchange');
+  if(target.kind==='exchange')exchange();
   if(target.kind==='cottage')enterShelf();
 }
 function scan() {
@@ -229,16 +249,16 @@ function help(){
     '<kbd>E</kbd><span>Pick up a find, dig, or use the cottage / exchange</span>'+
     '<kbd>F</kbd><span>Scan the sand once you own a metal detector</span>'+
     '<kbd>B / J</kbd><span>Open backpack / collection journal</span>'+
-    '<kbd>H</kbd><span>Visit your cottage shelves from anywhere</span>'+
+    '<kbd>H</kbd><span>Visit your cottage shelves from anywhere and sleep until morning</span>'+
     '<kbd>ESC</kbd><span>Close menus or release mouse control</span>'+
     '<kbd>Q / R</kbd><span>Rotate a selected treasure on your shelves</span></div>'+
-    '<p class="lead">The shovel reveals little digging spots. The detector highlights buried finds for ten seconds each time you scan. Completed collections earn 75 sand dollars. Everything saves automatically in this browser.</p>');
+    '<p class="lead">The shovel reveals little digging spots. The detector highlights buried finds for ten seconds each time you scan. Sleep in your cottage to let the tide bring a fresh batch of treasures. Completed collections earn 75 sand dollars. Everything saves automatically in this browser.</p>');
 }
 function buy(id){
   const u=UPGRADES.find(i=>i.id===id);
   if(!u||state[id]||state.coins<u.cost)return;
   state.coins-=u.cost;state[id]=true;
-  respawnMethod(id==='shovel'?'shovel':'detector',id==='shovel'?13:10);
+  // Buried treasures for today's tide already exist; the new tool reveals them.
   save();refreshHUD();exchange();toast('✿ '+u.name+' unlocked!');
 }
 function sell(id){
@@ -284,6 +304,29 @@ function leaveShelf(){
   $('shelfControls').classList.add('hidden');$('crosshair').classList.remove('hidden');
   selectShelf(null);resize();toast('Back to the sunny shore ☼');
 }
+function sleepUntilMorning(){
+  if(!started||mode!=='shelf'||activePanel||sleeping)return;
+  sleeping=true;keys.clear();
+  const overlay=$('sleepScreen');
+  $('sleepMessage').textContent='The waves whisper goodnight...';
+  $('sleepDay').textContent='Day '+state.day;
+  overlay.classList.remove('hidden');
+  requestAnimationFrame(()=>overlay.classList.add('active'));
+  setTimeout(()=>{
+    state.day=clampDay(state.day+1);
+    newTide();
+    beach.camera.position.set(0,1.7,2);
+    beach.camera.rotation.set(0,0,0);
+    scanUntil=0;
+    leaveShelf();
+    $('sleepMessage').textContent='The tide brought new treasures ✨';
+    $('sleepDay').textContent='Day '+state.day;
+    setTimeout(()=>{
+      overlay.classList.remove('active');
+      setTimeout(()=>{overlay.classList.add('hidden');sleeping=false;},650);
+    },1150);
+  },1100);
+}
 function refreshShelfUI(){
   const title=s=>s.charAt(0).toUpperCase()+s.slice(1);
   $('wallButton').textContent='🎨 Wall: '+title(state.wall);
@@ -315,6 +358,7 @@ $('helpButton').addEventListener('click',help);
 $('closePanel').addEventListener('click',closePanel);
 $('panelBackdrop').addEventListener('click',closePanel);
 $('beachButton').addEventListener('click',leaveShelf);
+$('sleepButton').addEventListener('click',sleepUntilMorning);
 $('addShelfButton').addEventListener('click',shelfPicker);
 $('removeShelfButton').addEventListener('click',removeSelected);
 $('wallButton').addEventListener('click',()=>cycleOption('wall',Object.keys(SHOP_COLORS)));
@@ -343,7 +387,7 @@ window.addEventListener('keydown',e=>{
   if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();
   const key=e.key.toLowerCase();
   if(key==='escape'){if(activePanel)closePanel();else if(mode==='shelf')leaveShelf();return;}
-  if(!started||e.repeat)return;
+  if(!started||e.repeat||sleeping)return;
   if(!activePanel){
     if(key==='b'){backpack();return;}if(key==='j'){journal();return;}
     if(key==='h'){mode==='shelf'?leaveShelf():enterShelf();return;}
@@ -388,7 +432,7 @@ function stopDrag(){if(dragging){dragging=false;save();}}
 renderer.domElement.addEventListener('pointerup',stopDrag);
 renderer.domElement.addEventListener('pointercancel',stopDrag);
 function move(dt){
-  if(mode!=='beach'||activePanel||document.pointerLockElement!==renderer.domElement)return;
+  if(mode!=='beach'||activePanel||sleeping||document.pointerLockElement!==renderer.domElement)return;
   let forward=Number(keys.has('w')||keys.has('arrowup'))-Number(keys.has('s')||keys.has('arrowdown'));
   let side=Number(keys.has('d')||keys.has('arrowright'))-Number(keys.has('a')||keys.has('arrowleft'));
   if(!forward&&!side)return;
@@ -442,7 +486,7 @@ function animate(){
   if(started)move(dt);
   const scanning=state.detector&&performance.now()<scanUntil;
   beach.update(t,scanning);
-  if(started&&mode==='beach'){
+  if(started&&mode==='beach'&&!sleeping){
     near=nearTarget();
     const prompt=near?.name||'';
     if(prompt!==lastPrompt){setInteraction(near);lastPrompt=prompt;}
