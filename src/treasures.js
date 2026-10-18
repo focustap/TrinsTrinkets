@@ -323,6 +323,12 @@ export function createTreasure(item,scale=1){
   else if(item.type==='fossil')fossil(g,item);
   else if(item.type==='tooth')sharkTooth(g,item);
   else if(item.type==='bottle')bottle(g);
+  // All keepsakes rest on the shelf instead of hovering above it.
+  // Keep the group's origin at ground level so existing saved placements still work.
+  const bounds=new THREE.Box3().setFromObject(g);
+  if(Number.isFinite(bounds.min.y)){
+    for(const child of g.children)child.position.y-=bounds.min.y;
+  }
   g.scale.setScalar(scale);
   g.userData.itemId=item.id;
   return g;
