@@ -307,7 +307,7 @@ export function createShelfScene() {
       garland.push(bulb);
     }
   }
-  curve(displayFrame,wirePoints,.011,mat('#a08a7b'));
+  displayFrame.add(curve(wirePoints,.011,mat('#a08a7b')));
   // Whimsical wall frames, foliage, and tiny seaside props.
   const flowerFrame=rounded(1.2,1.23,.12,.075,mat('#cfaa91'),-3.89,3.06,-3.56);
   scene.add(flowerFrame);
@@ -325,7 +325,7 @@ export function createShelfScene() {
     const a=i*Math.PI*2/7;
     const leaves=[[3.9,.72,-2.7],[3.9+Math.cos(a)*.13,1.1,-2.7+Math.sin(a)*.13],
       [3.9+Math.cos(a)*.4,1.39,-2.7+Math.sin(a)*.24]];
-    curve(scene,leaves,.028,mat('#83a78c'));
+    scene.add(curve(leaves,.028,mat('#83a78c')));
     const l=ball(.13,mat('#9bbb9a'),leaves[2][0],leaves[2][1],leaves[2][2]);l.scale.set(1,.42,.77);
     scene.add(l);
   }
