@@ -26,6 +26,7 @@ import { createCaveScene } from './cave.js';
 import { mountMuseum, clearMuseum, renderMuseum } from './museum.js';
 import { openPainting } from './painting.js';
 import { previewState } from './preview.js';
+import { DEV_SEQUENCE, toggleUnlimitedMoney, resetProgress, devMenuHtml, resetConfirmHtml } from './devtools.js';
 import { sellTreasure, sellExtras, claimCompletedSets } from './inventory.js';
 
 const $ = (id) => document.getElementById(id),
@@ -141,7 +142,7 @@ function toast(message) {
   toastTimer = setTimeout(() => $('toast').classList.remove('show'), 3800);
 }
 function refreshHUD() {
-  $('balance').textContent = money(state.coins);
+  $('balance').textContent = state.devInfiniteMoney ? '∞' : money(state.coins);
   $('dayNumber').textContent = state.day;
   const pool = mode === 'cave' ? state.caveFinds : state.beachFinds,
     remaining = pool?.filter((f) => canDiscover(state, f.method)).length || 0;
@@ -403,7 +404,7 @@ function backpack() {
 let shopTab = 'equipment';
 function exchange(which = shopTab) {
   shopTab = which;
-  let html = `<p class="lead">New tools reveal new kinds of treasure. Take your time; the tide always comes back.</p><div class="notice">${money(state.coins)} sand dollars · ${uniqueCount()} unique discoveries</div><div class="pill-row">${['equipment', 'cottage', 'sell'].map((t) => `<button class="pill ${which === t ? 'active' : ''}" data-action="shop-tab" data-id="${t}">${t}</button>`).join('')}</div>`;
+  let html = `<p class="lead">New tools reveal new kinds of treasure. Take your time; the tide always comes back.</p><div class="notice">${state.devInfiniteMoney ? '∞' : money(state.coins)} sand dollars · ${uniqueCount()} unique discoveries</div><div class="pill-row">${['equipment', 'cottage', 'sell'].map((t) => `<button class="pill ${which === t ? 'active' : ''}" data-action="shop-tab" data-id="${t}">${t}</button>`).join('')}</div>`;
   if (which === 'sell') {
     const list = CATALOG.filter((i) => available(i.id));
     html +=
@@ -644,6 +645,57 @@ function exportSave() {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+function openDeveloperMenu() {
+  if (!started || sleeping) return;
+  panelShell('Developer Tools', 'private playtesting ✦', devMenuHtml(state));
+}
+function resetDeveloperSave() {
+  if (loaded.preview || loaded.error) {
+    toast('Developer reset is unavailable in preview mode or while saving is blocked.');
+    return openDeveloperMenu();
+  }
+  // Take a separate local backup before touching the active collection.
+  const snapshot = JSON.stringify(state);
+  try {
+    storage.setItem('trins-trinkets-pre-dev-reset', snapshot);
+  } catch {
+    toast('Could not create a backup. Export your save before resetting.');
+    return openDeveloperMenu();
+  }
+  resetProgress(state);
+  if (!save()) {
+    for (const key of Object.keys(state)) delete state[key];
+    Object.assign(state, JSON.parse(snapshot));
+    toast('Reset did not save; your previous progress was kept.');
+    return openDeveloperMenu();
+  }
+  closePanel();
+  mode = 'beach';
+  returnMode = 'beach';
+  dragging = false;
+  sleeping = false;
+  scanUntil = 0;
+  selectedUid = null;
+  keys.clear();
+  beach.camera.position.set(0, 1.7, 2);
+  beach.camera.rotation.set(0, 0, 0);
+  beach.setGate(false);
+  spawnTides();
+  shelf.customize(state);
+  shelf.clearDisplay();
+  $('shelfView').value = 'main';
+  setShelfView('main');
+  document.body.classList.remove('in-shelf');
+  $('shelfControls').classList.add('hidden');
+  $('crosshair').classList.remove('hidden');
+  $('sleepScreen').classList.remove('active');
+  $('sleepScreen').classList.add('hidden');
+  refreshHUD();
+  refreshShelfUI();
+  resize();
+  changeAmbience();
+  toast('Fresh start! Day 1, zero sand dollars, and a brand-new tide. ♡');
+}
 function help() {
   panelShell(
     'How to play',
@@ -716,6 +768,37 @@ $('panelContent').addEventListener('click', (e) => {
   if (!b || b.disabled) return;
   const id = b.dataset.id,
     a = b.dataset.action;
+  if (a === 'dev-toggle-money') {
+    if (loaded.preview || loaded.error) {
+      toast('Developer changes cannot be saved in preview or recovery mode.');
+      return;
+    }
+    toggleUnlimitedMoney(state);
+    if (!save()) {
+      toggleUnlimitedMoney(state);
+      toast('Saving unavailable; developer money was not changed.');
+      return;
+    }
+    refreshHUD();
+    openDeveloperMenu();
+    toast(state.devInfiniteMoney ? 'Infinite testing money enabled ∞' : 'Normal money restored.');
+    return;
+  }
+  if (a === 'dev-reset-prompt') {
+    if (loaded.preview || loaded.error) {
+      toast('Reset unavailable while saving is blocked or in preview mode.');
+      return;
+    }
+    panelShell('Confirm Reset', 'destructive action', resetConfirmHtml());
+    $('devResetInput')?.focus();
+    return;
+  }
+  if (a === 'dev-reset-cancel') return openDeveloperMenu();
+  if (a === 'dev-reset-confirm') {
+    if ($('devResetInput')?.value.trim().toUpperCase() !== 'RESET') return;
+    resetDeveloperSave();
+    return;
+  }
   if (a === 'tab') {
     tab = id;
     journal(activePanel === 'model gallery');
@@ -755,6 +838,42 @@ $('panelContent').addEventListener('click', (e) => {
     backpack();
   }
 });
+$('panelContent').addEventListener('input', (e) => {
+  if (e.target.id !== 'devResetInput') return;
+  const btn = $('panelContent').querySelector('[data-action="dev-reset-confirm"]');
+  if (btn) btn.disabled = e.target.value.trim().toUpperCase() !== 'RESET';
+});
+// Secret typed sequence; no visible access button in the ordinary game UI.
+let devSequenceProgress = 0;
+let devSequenceTime = 0;
+function devSequenceKey(e) {
+  if (!started || sleeping || e.repeat || e.ctrlKey || e.altKey || e.metaKey ||
+      e.target.matches('input,select,textarea,[contenteditable="true"]')) return false;
+  const key = e.key.toLowerCase();
+  if (key.length !== 1 || !/^[a-z]$/.test(key)) {
+    devSequenceProgress = 0;
+    return false;
+  }
+  const now = performance.now();
+  if (now - devSequenceTime > 3500) devSequenceProgress = 0;
+  if (key === DEV_SEQUENCE[devSequenceProgress]) {
+    devSequenceTime = now;
+    devSequenceProgress++;
+    e.preventDefault();
+    if (devSequenceProgress === DEV_SEQUENCE.length) {
+      devSequenceProgress = 0;
+      openDeveloperMenu();
+    }
+    return true;
+  }
+  devSequenceProgress = key === DEV_SEQUENCE[0] ? 1 : 0;
+  if (devSequenceProgress) {
+    devSequenceTime = now;
+    e.preventDefault();
+    return true;
+  }
+  return false;
+}
 renderer.domElement.onclick = () => {
   if (
     started &&
@@ -783,6 +902,7 @@ document.addEventListener('mousemove', (e) => {
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (e.target.matches('input,select,textarea')) return;
+  if (devSequenceKey(e)) return;
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key))
     e.preventDefault();
   if (k === 'escape') {
