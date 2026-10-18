@@ -112,7 +112,7 @@ function treasure(item,scale=1){
   return model;
 }
 function rounded(w,h,d,r,material,x=0,y=0,z=0){
-  const m=new THREE.Mesh(new RoundedBoxGeometry(w,h,d,4,r),material);
+  const m=new THREE.Mesh(new RoundedBoxGeometry(w,h,d,4,Math.min(r,w*.48,h*.48,d*.48)),material);
   m.position.set(x,y,z);
   m.castShadow=true;m.receiveShadow=true;
   return m;
