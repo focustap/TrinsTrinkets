@@ -286,12 +286,12 @@ export function purchaseReason(s, u) {
     );
   if (u.unique && new Set(s.discovered).size < u.unique)
     return `Discover ${u.unique} unique treasures`;
-  return s.coins < u.cost ? 'Not enough sand dollars' : '';
+  return !s.devInfiniteMoney && s.coins < u.cost ? 'Not enough sand dollars' : '';
 }
 export function purchase(s, id) {
   const u = [...UPGRADES, ...DECOR].find((x) => x.id === id);
   if (purchaseReason(s, u)) return false;
-  s.coins -= u.cost;
+  if (!s.devInfiniteMoney) s.coins -= u.cost;
   if (UPGRADES.includes(u)) {
     s.equipment.push(id);
     s[id] = true;
