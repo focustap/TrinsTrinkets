@@ -16,7 +16,20 @@ import {
   softDiscTexture,
 } from './surfaces.js';
 import { grassClump, wildflower, driftwood, pottedPlant } from './scenery.js';
-import { grainTexture, addSky } from './visuals.js';
+import {
+  grainTexture,
+  addSky,
+  waterNormalTexture,
+  memoryPrint,
+  ambientTime,
+} from './visuals.js';
+import {
+  cragGeometry,
+  cragMaterial,
+  addCoastalLandscape,
+  paintBeachGround,
+  addMotes,
+} from './landscape.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const box = (w, h, d, material, x = 0, y = 0, z = 0) => {
@@ -59,7 +72,7 @@ function sign(
   if (typeof document === 'undefined') {
     const face = new THREE.Mesh(
       new THREE.PlaneGeometry(w, h),
-      new THREE.MeshBasicMaterial({ color: background }),
+      new THREE.MeshStandardMaterial({ color: background, roughness: 0.95 }),
     );
     face.rotation.y = Math.PI;
     return face;
@@ -81,8 +94,10 @@ function sign(
   tex.colorSpace = THREE.SRGBColorSpace;
   const face = new THREE.Mesh(
     new THREE.PlaneGeometry(w, h),
-    new THREE.MeshBasicMaterial({
+    new THREE.MeshStandardMaterial({
       map: tex,
+      color: '#e1d7bf',
+      roughness: 0.95,
       transparent: true,
       side: THREE.FrontSide,
     }),
@@ -93,25 +108,7 @@ function sign(
 }
 
 function sandTexture() {
-  if (typeof document === 'undefined') return null;
-  const c = document.createElement('canvas');
-  c.width = c.height = 256;
-  const g = c.getContext('2d'),
-    random = sceneryRandom(352);
-  g.fillStyle = '#efd8b0';
-  g.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 3600; i++) {
-    const x = random() * 256,
-      y = random() * 256;
-    g.fillStyle =
-      i % 3 === 0 ? 'rgba(255,255,242,.20)' : 'rgba(166,122,89,.10)';
-    g.fillRect(x, y, random() * 2 + 0.3, random() * 2 + 0.3);
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(11, 11);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+  return grainTexture('sand');
 }
 
 function flower(x, z, color = '#e6adbd') {
@@ -127,11 +124,14 @@ function grasses(x, z) {
 
 function makeCottage(scene) {
   const house = new THREE.Group(),
-    paint = mat('#f3e5d7'),
-    roof = mat('#b98891'),
-    trim = mat('#fffaf0'),
-    wood = mat('#9b7661'),
-    glass = mat('#a8d7e4', 0.21);
+    paint = mat('#aeb7a6'),
+    roof = mat('#575c62'),
+    trim = mat('#e2d3b6'),
+    wood = mat('#82614a'),
+    glass = mat('#607e83', 0.21);
+  paint.map = grainTexture('plaster');
+  roof.map = grainTexture();
+  wood.map = grainTexture('wood');
   house.name = 'cottage-exterior';
   house.position.set(-7.5, 0, 13);
   // Solid end walls fill the gables. The roof is one closed shell, so its
@@ -179,7 +179,7 @@ function makeCottage(scene) {
     roof,
     'cottage-roof',
   );
-  const course = mat('#c5959d');
+  const course = mat('#77716a');
   for (const side of [-1, 1]) {
     for (let j = 1; j <= 7; j++) {
       const x = side * j * 0.5;
@@ -216,6 +216,12 @@ function makeCottage(scene) {
   house.add(atticFrame);
   house.add(box(0.065, 0.78, 0.08, trim, 0, 4.95, -3.09));
   house.add(box(0.78, 0.065, 0.08, trim, 0, 4.95, -3.09));
+  const siding = mat('#879384');
+  for (let y = 0.23; y < 4; y += 0.26) {
+    house.add(box(6.96, 0.018, 0.016, siding, 0, y, -3.014));
+    for (const side of [-1, 1])
+      house.add(box(0.016, 0.018, 5.98, siding, side * 3.506, y, 0));
+  }
   house.add(box(1.5, 2.85, 0.15, wood, 0, 1.44, -3.07));
   for (const x of [-0.83, 0.83])
     house.add(box(0.12, 2.98, 0.18, trim, x, 1.49, -3.09));
@@ -242,6 +248,26 @@ function makeCottage(scene) {
   const label = sign("TRIN'S COTTAGE", '#8f666d', '#fff1e9', 3.25, 0.76);
   label.position.set(0, 3.58, -3.16);
   house.add(label);
+  house.add(box(2.15, 0.14, 0.73, mat('#838477'), 0, -0.015, -3.45));
+  const lantern = new THREE.Group();
+  lantern.position.set(1.16, 2.48, -3.32);
+  const iron = mat('#424b4b'),
+    amber = new THREE.MeshStandardMaterial({
+      color: '#dfb470',
+      emissive: '#e8a35b',
+      emissiveIntensity: 0.65,
+      roughness: 0.6,
+    });
+  lantern.add(box(0.22, 0.32, 0.18, amber));
+  for (const y of [-0.19, 0.19])
+    lantern.add(box(0.3, 0.05, 0.26, iron, 0, y, 0));
+  for (const x of [-0.12, 0.12])
+    lantern.add(box(0.025, 0.36, 0.23, iron, x, 0, 0));
+  house.add(lantern);
+  const porchLight = new THREE.PointLight('#e8a566', 2.5, 4, 2);
+  porchLight.position.copy(lantern.position);
+  porchLight.position.z -= 0.15;
+  house.add(porchLight);
   for (let i = 0; i < 8; i++) {
     const stone = new THREE.Mesh(
       new THREE.CylinderGeometry(0.36, 0.45, 0.07, 9),
@@ -259,8 +285,10 @@ function makeExchange(scene) {
   const s = new THREE.Group(),
     wood = mat('#ba8d73'),
     white = mat('#fff1e4'),
-    accent = mat('#e7a8b0'),
-    sea = mat('#9fcac7');
+    accent = mat('#9e6e56'),
+    sea = mat('#708e84');
+  wood.map = grainTexture('wood');
+  white.map = grainTexture('plaster');
   s.position.set(7.5, 0, 12);
   s.add(box(5.3, 0.24, 3.4, wood, 0, 1.48, 0));
   for (const x of [-2.35, 2.35])
@@ -328,16 +356,21 @@ function rounded(w, h, d, r, material, x = 0, y = 0, z = 0) {
 export function createBeachScene() {
   const scene = new THREE.Scene(),
     random = sceneryRandom(7321);
-  scene.background = new THREE.Color('#a6d8dc');
-  scene.userData.exposure = 1.08;
-  addSky(scene, '#8ec6d0', '#e7e5ce');
-  scene.fog = new THREE.FogExp2('#b8dddc', 0.009);
+  scene.background = new THREE.Color('#a9978b');
+  scene.userData.exposure = 0.94;
+  scene.userData.environmentIntensity = 0.12;
+  scene.userData.environmentStyle = 'coast';
+  addSky(scene, '#526779', '#dcaa83', {
+    sun: [-0.43, 0.2, -0.88],
+    clouds: 0.7,
+  });
+  scene.fog = new THREE.Fog('#b59b87', 22, 125);
   const camera = new THREE.PerspectiveCamera(72, 1, 0.1, 220);
   camera.position.set(0, 1.7, 2);
   camera.rotation.order = 'YXZ';
-  scene.add(new THREE.HemisphereLight('#ffeed4', '#6c9e95', 1.55));
-  const sunlight = new THREE.DirectionalLight('#fff0d6', 2.4);
-  sunlight.position.set(-25, 35, -35);
+  scene.add(new THREE.HemisphereLight('#a4b8c8', '#343e3e', 0.68));
+  const sunlight = new THREE.DirectionalLight('#ffc08a', 3.45);
+  sunlight.position.set(-25, 13, -48);
   sunlight.castShadow = true;
   sunlight.shadow.mapSize.set(2048, 2048);
   sunlight.shadow.camera.left = -27;
@@ -347,9 +380,18 @@ export function createBeachScene() {
   sunlight.shadow.bias = -0.00012;
   sunlight.shadow.normalBias = 0.012;
   scene.add(sunlight);
+  const seaBounce = new THREE.DirectionalLight('#8daab8', 0.48);
+  seaBounce.position.set(12, 8, 14);
+  scene.add(seaBounce);
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(39, 38),
-    new THREE.MeshStandardMaterial({ map: sandTexture(), roughness: 1 }),
+    paintBeachGround(new THREE.PlaneGeometry(39, 38, 78, 76)),
+    new THREE.MeshStandardMaterial({
+      map: sandTexture(),
+      vertexColors: true,
+      bumpMap: sandTexture(),
+      bumpScale: 0.014,
+      roughness: 1,
+    }),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(0, GROUND.beach, 3);
@@ -366,8 +408,8 @@ export function createBeachScene() {
   const wet = new THREE.Mesh(
     new THREE.PlaneGeometry(39, 2.4),
     new THREE.MeshStandardMaterial({
-      color: '#d7d4ba',
-      roughness: 0.55,
+      color: '#929b95',
+      roughness: 0.36,
       transparent: true,
       opacity: 0.65,
     }),
@@ -381,8 +423,8 @@ export function createBeachScene() {
   const oceanColors = [];
   for (let i = 0; i < oceanGeo.attributes.position.count; i++) {
     const z = base[i * 3 + 2] - 76;
-    const c = new THREE.Color('#99d4c8').lerp(
-      new THREE.Color('#489ba8'),
+    const c = new THREE.Color('#688e86').lerp(
+      new THREE.Color('#314e63'),
       Math.min(1, Math.max(0, (-z - 16) / 70)),
     );
     oceanColors.push(c.r, c.g, c.b);
@@ -401,6 +443,8 @@ export function createBeachScene() {
       transparent: true,
       opacity: 0.94,
       clearcoat: 0.7,
+      normalMap: waterNormalTexture(),
+      normalScale: new THREE.Vector2(0.34, 0.18),
       side: THREE.DoubleSide,
     }),
   );
@@ -428,34 +472,52 @@ export function createBeachScene() {
     scene.add(ribbon);
     foam.push(ribbon);
   }
-  const sun = ball(
-    7,
-    new THREE.MeshBasicMaterial({ color: '#fff0cf', fog: false }),
-    -27,
-    27,
-    -110,
-    32,
+  const sun = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: softDiscTexture(),
+      color: '#fff0cf',
+      fog: false,
+      depthWrite: false,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+    }),
   );
+  sun.position.set(-50, 26, -100);
+  sun.scale.set(16, 16, 1);
   scene.add(sun);
-  for (let j = 0; j < 5; j++) {
+  for (let j = 0; j < 2; j++) {
     const cloud = new THREE.Sprite(
       new THREE.SpriteMaterial({
         map: softDiscTexture(),
         color: '#fff2d9',
         transparent: true,
-        opacity: 0.15,
+        opacity: j ? 0.13 : 0.36,
         depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        fog: false,
       }),
     );
-    cloud.scale.set(25, 6, 1);
-    cloud.position.set(-44 + j * 22, 15 + Math.sin(j) * 3, -90);
+    cloud.scale.setScalar(j ? 38 : 22);
+    cloud.position.copy(sun.position).multiplyScalar(0.96);
     scene.add(cloud);
   }
   // A compact, sheltered cove replaces the original featureless open sand plain.
   // Curved rocky edges and dune grass make the playable area feel intentionally small.
-  const rockMats = [mat('#c0aca0'), mat('#d2bca8'), mat('#aeb5a8')];
-  const dune = mat('#e9d2aa'),
-    grass = mat('#9aaf86');
+  const rockMats = [
+    cragMaterial('#e2d3b3'),
+    cragMaterial('#ccd6ca'),
+    cragMaterial('#d9cfb8'),
+  ];
+  const dune = mat('#a2a182');
+  dune.map = grainTexture();
+  const crag = (r, material, x, y, z, variant) => {
+    const mesh = new THREE.Mesh(cragGeometry(variant), material);
+    mesh.position.set(x, y, z);
+    mesh.scale.setScalar(r);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+  };
   for (const side of [-1, 1]) {
     for (let i = 0; i < 25; i++) {
       const z = -16 + i * 1.54 + (random() - 0.5) * 0.7;
@@ -463,8 +525,8 @@ export function createBeachScene() {
       const radius = 1.45 + random() * 1.4;
       if (side === 1 && z + radius * 1.65 > -1.6 && z - radius * 1.65 < 3.6)
         continue;
-      const stone = ball(radius, rockMats[i % 3], x, radius * 0.36, z, 9);
-      stone.scale.set(1.15, 0.6, 1.0 + random() * 0.4);
+      const stone = crag(radius, rockMats[i % 3], x, radius * 0.55, z, i);
+      stone.scale.multiply(new THREE.Vector3(1.15, 0.94, 1.0 + random() * 0.4));
       stone.rotation.y = random() * 3;
       scene.add(stone);
       if (i % 2 === 0) groundObject(grasses(x - side * 1.5, z));
@@ -473,17 +535,18 @@ export function createBeachScene() {
   for (let i = 0; i < 23; i++) {
     const x = -18 + i * 1.65,
       z = 20 + Math.sin(i * 0.5) * 1.4;
-    const hill = ball(
+    const hill = crag(
       2.2 + random() * 1.4,
       i % 3 === 0 ? rockMats[1] : dune,
       x,
       0.7,
       z,
-      11,
+      i,
     );
-    hill.scale.set(1, 0.65, 1.25);
+    hill.scale.multiply(new THREE.Vector3(1, 0.65, 1.25));
     scene.add(hill);
   }
+  const landscape = addCoastalLandscape(scene);
   for (let i = 0; i < 45; i++) {
     const x = (random() - 0.5) * 29,
       z = random() * 30 - 12;
@@ -499,8 +562,9 @@ export function createBeachScene() {
   for (let i = 0; i < 34; i++) {
     const x = (random() - 0.5) * 29,
       z = random() * 29 - 13;
-    const stone = ball(0.06 + random() * 0.15, rockMats[i % 3], x, 0.05, z, 8);
-    stone.scale.set(1, 0.45, 1.2);
+    const r = 0.06 + random() * 0.15;
+    const stone = crag(r, rockMats[i % 3], x, 0.05, z, i);
+    stone.scale.multiply(new THREE.Vector3(1, 0.45, 1.2));
     groundObject(stone, true);
   }
   for (let i = 0; i < 7; i++) {
@@ -521,28 +585,28 @@ export function createBeachScene() {
   entrance.group.rotation.y = -Math.PI / 2;
   cavePath.add(entrance.group);
   for (let j = 0; j < 5; j++) {
-    const cap = ball(
+    const cap = crag(
       1.5,
       rockMats[j % 3],
       18.4,
       4.2 + Math.sin(j) * 0.25,
       -2.4 + j * 1.65,
-      16,
+      j,
     );
-    cap.scale.set(1.3, 0.75, 1.1);
+    cap.scale.multiply(new THREE.Vector3(1.3, 0.75, 1.1));
     cavePath.add(cap);
   }
   for (const z of [-3.2, 5.2])
     for (let j = 0; j < 3; j++) {
-      const stone = ball(
+      const stone = crag(
         1.5,
         rockMats[j % 3],
         17 + j * 0.8,
         0.65 + j * 0.2,
         z,
-        16,
+        j,
       );
-      stone.scale.set(1, 0.8, 1);
+      stone.scale.multiply(new THREE.Vector3(1, 0.8, 1));
       cavePath.add(stone);
     }
   for (const z of [-1, 3])
@@ -638,6 +702,10 @@ export function createBeachScene() {
     for (const g of [...finds]) remove(g);
   }
   function update(t, scan, scanRange = 12, dt = 0.016) {
+    t = ambientTime(t);
+    landscape.update(t);
+    scene.userData.sky.material.uniforms.time.value = t;
+    water.material.normalMap.offset.set(t * 0.0012, t * 0.0007);
     entrance.update(dt);
     gate.rotation.y = (entrance.progress * Math.PI) / 2;
     const pos = oceanGeo.attributes.position;
@@ -693,15 +761,17 @@ export function createBeachScene() {
 
 export function createShelfScene() {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#f3e4db');
-  scene.userData.exposure = 1.02;
+  scene.background = new THREE.Color('#9d9181');
+  scene.userData.exposure = 0.92;
+  scene.userData.environmentIntensity = 0.18;
+  scene.userData.finishWarm = 0.021;
   const camera = new THREE.PerspectiveCamera(51, 1, 0.1, 100);
   camera.position.set(0, 2.45, 7.3);
   camera.lookAt(0, 2.2, -2.48);
 
-  scene.add(new THREE.HemisphereLight('#fff6ea', '#afaba2', 1.45));
-  const sun = new THREE.DirectionalLight('#fff0db', 2.0);
-  sun.position.set(-3.8, 7, 5);
+  scene.add(new THREE.HemisphereLight('#b3c6cd', '#4b4440', 0.67));
+  const sun = new THREE.DirectionalLight('#ffc58e', 3.1);
+  sun.position.set(-3.8, 5, 5);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.left = -8;
@@ -711,12 +781,15 @@ export function createShelfScene() {
   sun.shadow.bias = -0.00012;
   sun.shadow.normalBias = 0.009;
   scene.add(sun);
-  const fill = new THREE.PointLight('#ffd8bd', 16, 13, 2);
+  const fill = new THREE.PointLight('#edac74', 10, 13, 2);
   fill.position.set(2.5, 4.3, 3.7);
   scene.add(fill);
   const wallMat = mat('#fff0df'),
     floorMat = mat('#e6c8ad'),
     woodMat = mat('#cda579');
+  wallMat.map = grainTexture('plaster');
+  woodMat.map = grainTexture('wood');
+  woodMat.roughness = 0.82;
   const trim = mat('#fbf0e3'),
     molding = mat('#efdbc8'),
     bronze = mat('#c99e72', 0.42, 0.16);
@@ -728,6 +801,28 @@ export function createShelfScene() {
   scene.add(side);
   const floor = box(11, 0.3, 11, floorMat, 0, -0.08, 0);
   scene.add(floor);
+  const windowFrame = new THREE.Group();
+  windowFrame.position.set(0.145, -0.45, 1.4);
+  const windowGlass = new THREE.MeshStandardMaterial({
+    color: '#9db2b1',
+    emissive: '#d7b58a',
+    emissiveIntensity: 0.35,
+    roughness: 0.35,
+  });
+  windowFrame.add(box(0.025, 2.1, 1.65, windowGlass));
+  for (const y of [-1.1, 0, 1.1])
+    windowFrame.add(box(0.11, 0.065, 1.82, mat('#a69a7c'), 0.025, y, 0));
+  for (const z of [-0.88, 0, 0.88])
+    windowFrame.add(box(0.11, 2.25, 0.065, mat('#a69a7c'), 0.025, 0, z));
+  windowFrame.add(box(0.35, 0.12, 2.04, mat('#9a8064'), 0.12, -1.16, 0));
+  side.add(windowFrame);
+  const cottageMotes = addMotes(scene, {
+    bounds: [7, 4, 6],
+    origin: [-1, 1, 0],
+    count: 26,
+    color: '#e7c493',
+    opacity: 0.26,
+  });
   // Cottage wainscoting and trim give structure without overwhelming the displayed finds.
   scene.add(rounded(10.8, 0.15, 0.2, 0.05, trim, 0, 0.67, -3.7));
   scene.add(rounded(10.8, 0.13, 0.2, 0.05, trim, 0, 0.16, -3.7));
@@ -735,18 +830,20 @@ export function createShelfScene() {
     scene.add(rounded(0.055, 0.4, 0.055, 0.02, molding, x, 0.4, -3.67));
   }
   scene.add(rounded(10.6, 0.11, 0.22, 0.045, trim, 0, 4.8, -3.69));
-  const rug = new THREE.Mesh(new THREE.CircleGeometry(2, 48), mat('#e8b9c6'));
+  const rug = new THREE.Mesh(new THREE.CircleGeometry(2, 48), mat('#a77862'));
+  rug.material.map = grainTexture('cloth');
   rug.rotation.x = -Math.PI / 2;
   rug.scale.set(1.65, 1.02, 1);
   rug.position.set(0, GROUND.cottage + 0.002, 2.25);
   scene.add(rug);
   const innerRug = new THREE.Mesh(
     new THREE.CircleGeometry(1.71, 48),
-    mat('#f2d8d8'),
+    mat('#c0a086'),
   );
   innerRug.rotation.x = -Math.PI / 2;
   innerRug.scale.set(1.6, 1, 1);
   innerRug.position.set(0, GROUND.cottage + 0.004, 2.25);
+  innerRug.material.map = grainTexture('cloth');
   scene.add(innerRug);
 
   // A rounded, upholstered daybed anchors the side of the display room.
@@ -774,6 +871,11 @@ export function createShelfScene() {
   for (const x of [-0.83, 0.83])
     for (const z of [-1.05, 1.05])
       bed.add(rounded(0.12, 0.4, 0.14, 0.045, mat('#b28876'), x, 0.16, z));
+  for (const child of [bed.children[1], bed.children[2]])
+    child.material.map = grainTexture('cloth');
+  const stitch = mat('#b69d80');
+  for (let j = 0; j < 11; j++)
+    bed.add(box(1.78, 0.008, 0.018, stitch, 0, 0.852, -0.13 + j * 0.115));
   const displayFrame = new THREE.Group();
   scene.add(displayFrame);
 
@@ -857,7 +959,7 @@ export function createShelfScene() {
     }
   }
   displayFrame.add(curve(wirePoints, 0.011, mat('#a08a7b')));
-  // Whimsical wall frames, foliage, and tiny seaside props.
+  // Faded coastal photographs and collected paper give the room a lived-in story.
   const flowerFrame = rounded(
     1.2,
     1.23,
@@ -869,27 +971,33 @@ export function createShelfScene() {
     -3.56,
   );
   scene.add(flowerFrame);
-  scene.add(rounded(1, 0.99, 0.045, 0.045, mat('#eef0df'), -3.89, 3.06, -3.48));
-  for (let i = 0; i < 5; i++) {
-    const a = (i * Math.PI * 2) / 5;
-    const petal = ball(
-      0.14,
-      mat('#eab4be'),
-      -3.89 + Math.sin(a) * 0.19,
-      3.06 + Math.cos(a) * 0.19,
-      -3.43,
-    );
-    petal.scale.set(1, 0.95, 0.4);
-    scene.add(petal);
-  }
-  const center = ball(0.075, mat('#e6c676'), -3.89, 3.06, -3.39);
-  center.scale.z = 0.55;
-  scene.add(center);
+  const photoMaterial = (variant) =>
+    new THREE.MeshStandardMaterial({
+      color: '#e8dfc9',
+      map: memoryPrint(variant),
+      roughness: 1,
+    });
+  const leftPrint = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.98, 1.06),
+    photoMaterial(0),
+  );
+  leftPrint.position.set(-3.89, 3.06, -3.47);
+  scene.add(leftPrint);
   scene.add(rounded(1.08, 1.3, 0.11, 0.07, mat('#d9b89e'), 3.9, 2.88, -3.59));
-  scene.add(rounded(0.87, 1.1, 0.06, 0.05, mat('#d0e7df'), 3.9, 2.88, -3.48));
-  const wallSun = ball(0.28, mat('#f0d5a9'), 3.9, 3.06, -3.43);
-  wallSun.scale.z = 0.25;
-  scene.add(wallSun);
+  const rightPrint = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.88, 1.12),
+    photoMaterial(2),
+  );
+  rightPrint.position.set(3.9, 2.88, -3.48);
+  scene.add(rightPrint);
+  const loosePrint = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.57, 0.72),
+    photoMaterial(1),
+  );
+  loosePrint.position.set(-4.32, 3.91, -3.53);
+  loosePrint.rotation.z = 0.09;
+  scene.add(loosePrint);
+  scene.add(box(0.26, 0.065, 0.006, mat('#bdb393'), -4.32, 4.27, -3.51));
   const cottagePlant = pottedPlant(0);
   cottagePlant.scale.setScalar(1.25);
   cottagePlant.position.set(3.9, 0, -2.7);
@@ -1053,7 +1161,7 @@ export function createShelfScene() {
     if (s.wallpaper !== 'none') {
       wallpaperTexture = pattern(s.wallpaper, SHOP_COLORS[s.wall]);
       wallMat.map = wallpaperTexture;
-    } else wallMat.map = null;
+    } else wallMat.map = grainTexture('plaster');
     wallMat.needsUpdate = true;
     if (s.floor !== 'original') {
       floorTexture = pattern(
@@ -1069,7 +1177,7 @@ export function createShelfScene() {
       floorMat.color.set('#ffffff');
     } else {
       floorMat.map = grainTexture('wood');
-      floorMat.color.set('#e6c8ad');
+      floorMat.color.set('#bca080');
     }
     floorMat.needsUpdate = true;
     rug.material.color.set(
@@ -1251,6 +1359,9 @@ export function createShelfScene() {
     heights,
     customize,
     setArtwork,
-    update: (t) => rewardDecor.userData.update(t),
+    update: (t) => {
+      rewardDecor.userData.update(ambientTime(t));
+      cottageMotes.update(ambientTime(t));
+    },
   };
 }

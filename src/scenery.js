@@ -8,12 +8,12 @@ const stemMat = material('#728d62'),
   leafMat = material('#88a477'),
   woodMat = material('#a78d76');
 
-function batch(group) {
+export function batch(group) {
   group.updateMatrixWorld(true);
   const batches = new Map();
   group.traverse((o) => {
     if (!o.isMesh) return;
-    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    const g = o.geometry.clone();
     g.applyMatrix4(o.matrixWorld);
     if (!g.attributes.uv)
       g.setAttribute(
@@ -28,11 +28,19 @@ function batch(group) {
   });
   group.clear();
   for (const [mat, geometries] of batches) {
-    const merged = mergeGeometries(geometries, false);
+    const mixedIndices = geometries.some(
+      (g) => Boolean(g.index) !== Boolean(geometries[0].index),
+    );
+    const inputs = mixedIndices
+      ? geometries.map((g) => (g.index ? g.toNonIndexed() : g))
+      : geometries;
+    const merged = mergeGeometries(inputs, false);
     const mesh = new T.Mesh(merged, mat);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     group.add(mesh);
+    if (mixedIndices)
+      for (const g of inputs) if (!geometries.includes(g)) g.dispose();
     for (const g of geometries) g.dispose();
   }
   return group;
@@ -43,11 +51,12 @@ export function leafGeometry(
   width = 0.07,
   bend = 0.25,
   angle = 0,
+  segments = 10,
 ) {
   const vertices = [],
     indices = [];
-  for (let j = 0; j <= 10; j++) {
-    const u = j / 10,
+  for (let j = 0; j <= segments; j++) {
+    const u = j / segments,
       w = Math.sin(Math.PI * u) ** 0.8 * width;
     for (const side of [-1, 0, 1])
       vertices.push(
@@ -55,7 +64,7 @@ export function leafGeometry(
         height * u + 0.025 * Math.sin(Math.PI * u) * (1 - Math.abs(side)),
         Math.cos(angle) * bend * u * u - Math.sin(angle) * w * side,
       );
-    if (j < 10)
+    if (j < segments)
       for (let k = 0; k < 2; k++) {
         const a = j * 3 + k;
         indices.push(a, a + 3, a + 1, a + 1, a + 3, a + 4);
