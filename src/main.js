@@ -37,6 +37,7 @@ import {
   devMenuHtml,
   resetConfirmHtml,
   grantBiomeAccess,
+  grantAllCollectibles,
 } from './devtools.js';
 import { sellTreasure, sellExtras, claimCompletedSets } from './inventory.js';
 
@@ -900,6 +901,41 @@ $('panelContent').addEventListener('click', (e) => {
   if (!b || b.disabled) return;
   const id = b.dataset.id,
     a = b.dataset.action;
+  if (a === 'dev-add-all') {
+    if (loaded.preview || loaded.error) {
+      toast('Saving is unavailable. Your collection was not changed.');
+      return;
+    }
+    const previous = JSON.stringify(state);
+    const outcome = grantAllCollectibles(state);
+    if (!save()) {
+      for (const key of Object.keys(state)) delete state[key];
+      Object.assign(state, JSON.parse(previous));
+      toast('Unable to save. Your original collection was restored.');
+      openDeveloperMenu();
+      return;
+    }
+    shelf.customize(state);
+    refreshHUD();
+    refreshShelfUI();
+    openDeveloperMenu();
+    toast(outcome.added || outcome.discovered || outcome.rewards.length || outcome.sets.length
+      ? `All ${outcome.total} treasures unlocked! ${outcome.rewards.length} decoration rewards earned ✦`
+      : 'You already have all collectibles and rewards. ♡');
+    return;
+  }
+  if (a === 'dev-open-journal') {
+    tab = 'All';
+    rarityFilter = 'All';
+    knownFilter = 'All';
+    inspectionReturn = false;
+    journal();
+    return;
+  }
+  if (a === 'dev-view-cottage') {
+    enterShelf();
+    return;
+  }
   if (a === 'dev-preview') {
     location.search = '?preview=' + id;
     return;
@@ -955,7 +991,8 @@ $('panelContent').addEventListener('click', (e) => {
     if (toggleReward(state, id)) {
       shelf.customize(state);
       save();
-      exchange('cottage');
+      if (activePanel === 'developer tools') openDeveloperMenu();
+      else exchange('cottage');
     }
     return;
   }
