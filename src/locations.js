@@ -3,7 +3,8 @@ export const BIOMES = {
   cave: { name: 'Mossglass Cave', finds: 'caveFinds' },
   moonpool: { name: 'Hidden Moonpool', finds: 'moonpoolFinds' },
 };
-// Dry shoreline shelves and stepping stones: never place a find under a pool.
+// Shoreline, stepping stones and one clear shallow bed. Rendering seats each
+// saved location on its real support without changing the saved tide.
 export const MOONPOOL_SITES = [
   [-1.2, 3.4],
   [1.2, 1.3],

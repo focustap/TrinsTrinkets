@@ -1,7 +1,10 @@
 import * as T from 'three';
 import { ITEMS } from './catalog.js';
 import { createTreasure } from './treasures.js';
+import { createStudioEnvironment } from './visuals.js';
+import { addContactShadow } from './surfaces.js';
 let renderer,
+  environment,
   views = [],
   last = 0;
 const silhouette = new T.MeshStandardMaterial({
@@ -28,7 +31,8 @@ export function mountMuseum(container) {
     renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     renderer.outputColorSpace = T.SRGBColorSpace;
     renderer.toneMapping = T.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.18;
+    renderer.toneMappingExposure = 1.06;
+    environment = createStudioEnvironment(renderer);
     renderer.domElement.className = 'museum-canvas';
     document.body.append(renderer.domElement);
   }
@@ -75,17 +79,22 @@ export function renderMuseum(time) {
     if (bottom <= top || r.right < 0 || r.left > innerWidth) continue;
     if (!v.scene) {
       v.scene = new T.Scene();
-      v.scene.add(new T.HemisphereLight('#fff4e6', '#9bafba', 2.3));
-      const key = new T.DirectionalLight('#fff0dc', 3.2);
+      v.scene.environment = environment.texture;
+      v.scene.environmentIntensity = 0.28;
+      v.scene.add(new T.HemisphereLight('#fff4e6', '#9bafba', 1.6));
+      const key = new T.DirectionalLight('#fff0dc', 2.6);
       key.position.set(-2, 4, 4);
       v.scene.add(key);
-      const fill = new T.DirectionalLight('#d2dfef', 1.7);
+      const fill = new T.DirectionalLight('#d2dfef', 1.1);
       fill.position.set(3, 1, -2);
       v.scene.add(fill);
       v.model = createTreasure(ITEMS[v.el.dataset.model]);
       v.scene.add(v.model);
+      addContactShadow(v.scene, v.model, 0, 0.22);
       if (v.el.dataset.unknown === 'true')
-        v.scene.overrideMaterial = silhouette;
+        v.model.traverse((o) => {
+          if (o.isMesh) o.material = silhouette;
+        });
       const bounds = new T.Box3().setFromObject(v.model),
         center = bounds.getCenter(new T.Vector3()),
         size = bounds.getSize(new T.Vector3()),
