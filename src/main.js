@@ -56,6 +56,7 @@ try {
 const preview = new URLSearchParams(location.search).get('preview');
 const loaded = [
     'cottage',
+    'cottage-exterior',
     'cave',
     'legacy',
     'moonpool',
@@ -1408,7 +1409,12 @@ if (loaded.preview) {
   started = true;
   $('overlay').classList.add('hidden');
   if (preview === 'moonpool') enterMoonpool();
-  else if (['cave', 'passage-locked', 'passage-ready'].includes(preview)) {
+  else if (preview === 'cottage-exterior') {
+    beach.camera.position.set(-7.5, 2.9, 0.5);
+    if (new URLSearchParams(location.search).get('angle') === 'side')
+      beach.camera.position.set(-15, 4, 3);
+    beach.camera.lookAt(-7.5, 3.1, 13);
+  } else if (['cave', 'passage-locked', 'passage-ready'].includes(preview)) {
     enterCave();
     if (preview.startsWith('passage-')) getCave().camera.position.z = -20;
   } else if (preview?.startsWith('entrance-')) {

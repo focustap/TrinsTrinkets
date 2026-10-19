@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { CATALOG } from '../src/catalog.js';
 import { createTreasure } from '../src/treasures.js';
-import { createShelfScene } from '../src/world.js';
+import { createShelfScene, createBeachScene } from '../src/world.js';
+import { createMoonpoolScene } from '../src/moonpool.js';
 import { fresh } from '../src/save.js';
 import { DECOR } from '../src/progression.js';
 import { shelfSlots } from '../src/shelves.js';
@@ -139,4 +140,42 @@ for (const item of CATALOG) {
 }
 console.log(
   'Verified all 96 physical shelf surfaces, artwork texture, and rotation clearance for 230 models.',
+);
+
+// Rays through the reported gaps must hit actual solid architecture.
+const beach = createBeachScene();
+beach.scene.updateMatrixWorld(true);
+const exterior = beach.scene.getObjectByName('cottage-exterior');
+for (const [x, y] of [
+  [0, 4.2],
+  [0, 5.5],
+  [0, 6.35],
+  [-1.5, 4.8],
+  [1.5, 4.8],
+]) {
+  ray.set(new THREE.Vector3(-7.5 + x, y, 0), new THREE.Vector3(0, 0, 1));
+  assert.ok(
+    ray.intersectObject(exterior, true).length,
+    'cottage gable and roof ridge must be closed',
+  );
+}
+const moonpool = createMoonpoolScene();
+moonpool.scene.updateMatrixWorld(true);
+const arch = moonpool.scene.getObjectByName('moonpool-arch-frame');
+for (const x of [-2.3, 2.3])
+  for (const y of [0.25, 0.8, 1.5, 2.2, 2.4]) {
+    ray.set(new THREE.Vector3(x, y, -10), new THREE.Vector3(0, 0, -1));
+    assert.ok(
+      ray.intersectObject(arch).length,
+      'Moonpool arch must connect continuously to its pillars',
+    );
+  }
+ray.set(new THREE.Vector3(0, 1.7, -10), new THREE.Vector3(0, 0, -1));
+assert.equal(
+  ray.intersectObject(arch).length,
+  0,
+  'the opening between pillars stays clear',
+);
+console.log(
+  'Verified solid cottage gables, closed roof ridge and continuous Moonpool arch supports.',
 );
