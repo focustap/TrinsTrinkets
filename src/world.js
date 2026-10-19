@@ -146,15 +146,94 @@ function makeCottage(scene) {
     trim = mat('#fffaf0'),
     wood = mat('#9b7661'),
     glass = mat('#a8d7e4', 0.21);
+  house.name = 'cottage-exterior';
   house.position.set(-7.5, 0, 13);
-  house.add(box(7, 4.1, 6, paint, 0, 2.05, 0));
-  const a = box(4.5, 0.25, 6.8, roof, -1.88, 4.68, 0);
-  a.rotation.z = Math.PI / 4;
-  house.add(a);
-  const b = box(4.5, 0.25, 6.8, roof, 1.88, 4.68, 0);
-  b.rotation.z = -Math.PI / 4;
-  house.add(b);
+  // Solid end walls fill the gables. The roof is one closed shell, so its
+  // slopes share a ridge instead of leaving a slit or exposing dark undersides.
+  const pitch = 2.2 / 3.5;
+  const extrude = (points, depth, material, name) => {
+    const shape = new THREE.Shape(
+      points.map(([x, y]) => new THREE.Vector2(x, y)),
+    );
+    const geometry = new THREE.ExtrudeGeometry(shape, {
+      depth,
+      bevelEnabled: false,
+    });
+    geometry.translate(0, 0, -depth / 2);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = name;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    house.add(mesh);
+    return mesh;
+  };
+  extrude(
+    [
+      [-3.5, -0.08],
+      [3.5, -0.08],
+      [3.5, 4.05],
+      [0, 6.25],
+      [-3.5, 4.05],
+    ],
+    6,
+    paint,
+    'cottage-walls',
+  );
+  const eave = 6.25 - pitch * 4;
+  extrude(
+    [
+      [-4, eave],
+      [0, 6.25],
+      [4, eave],
+      [4, eave + 0.24],
+      [0, 6.49],
+      [-4, eave + 0.24],
+    ],
+    6.8,
+    roof,
+    'cottage-roof',
+  );
+  const course = mat('#c5959d');
+  for (const side of [-1, 1]) {
+    for (let j = 1; j <= 7; j++) {
+      const x = side * j * 0.5;
+      const seam = box(
+        0.055,
+        0.025,
+        6.8,
+        course,
+        x,
+        6.51 - pitch * Math.abs(x),
+        0,
+      );
+      seam.rotation.z = -side * Math.atan(pitch);
+      house.add(seam);
+    }
+  }
+  const ridge = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.085, 0.085, 6.86, 12),
+    course,
+  );
+  ridge.rotation.x = Math.PI / 2;
+  ridge.position.set(0, 6.49, 0);
+  house.add(ridge);
+  // A little attic window gives the now enclosed gable a finished facade.
+  const attic = new THREE.Mesh(new THREE.CircleGeometry(0.42, 40), glass);
+  attic.rotation.y = Math.PI;
+  attic.position.set(0, 4.95, -3.025);
+  house.add(attic);
+  const atticFrame = new THREE.Mesh(
+    new THREE.TorusGeometry(0.43, 0.065, 10, 40),
+    trim,
+  );
+  atticFrame.position.set(0, 4.95, -3.07);
+  house.add(atticFrame);
+  house.add(box(0.065, 0.78, 0.08, trim, 0, 4.95, -3.09));
+  house.add(box(0.78, 0.065, 0.08, trim, 0, 4.95, -3.09));
   house.add(box(1.5, 2.85, 0.15, wood, 0, 1.44, -3.07));
+  for (const x of [-0.83, 0.83])
+    house.add(box(0.12, 2.98, 0.18, trim, x, 1.49, -3.09));
+  house.add(box(1.78, 0.13, 0.18, trim, 0, 2.96, -3.09));
   house.add(ball(0.085, mat('#e4c67d', 0.25, 0.6), 0.48, 1.46, -3.2));
   for (const x of [-2.25, 2.25]) {
     house.add(box(1.45, 1.65, 0.12, trim, x, 2.35, -3.12));
@@ -164,10 +243,15 @@ function makeCottage(scene) {
     house.add(box(1.7, 0.19, 0.56, trim, x, 1.47, -3.2));
     const planter = box(1.5, 0.24, 0.48, mat('#d2a892'), x, 1.29, -3.45);
     house.add(planter);
-    for (let j = 0; j < 5; j++)
-      house.add(
-        flower(x - 0.55 + j * 0.25, -3.45, j % 2 ? '#eab0d6' : '#fff7e5'),
+    for (let j = 0; j < 5; j++) {
+      const bloom = flower(
+        x - 0.55 + j * 0.25,
+        -3.45,
+        j % 2 ? '#eab0d6' : '#fff7e5',
       );
+      bloom.position.y = 1.39;
+      house.add(bloom);
+    }
   }
   const label = sign("TRIN'S COTTAGE", '#8f666d', '#fff1e9', 3.25, 0.76);
   label.position.set(0, 3.58, -3.16);

@@ -293,12 +293,72 @@ export function createMoonpoolScene() {
     roughness: 0.3,
     iridescence: 1,
   });
+  // One continuous stone frame: vertical legs share the semicircle's exact
+  // endpoints and tangents, with their lower ends buried in stone plinths.
+  class MoonArchCurve extends T.Curve {
+    getPoint(t, target = new T.Vector3()) {
+      const leg = 2.05,
+        radius = 2.3,
+        arc = Math.PI * radius,
+        d = t * (leg * 2 + arc);
+      if (d < leg) return target.set(-radius, 0.15 + d, 0);
+      if (d > leg + arc) return target.set(radius, 2.2 - (d - leg - arc), 0);
+      const angle = Math.PI - (d - leg) / radius;
+      return target.set(
+        Math.cos(angle) * radius,
+        2.2 + Math.sin(angle) * radius,
+        0,
+      );
+    }
+  }
   const arch = new T.Mesh(
-    new T.TorusGeometry(2.3, 0.25, 12, 64, Math.PI),
+    new T.TubeGeometry(new MoonArchCurve(), 160, 0.25, 16, false),
     archMat,
   );
-  arch.position.set(0, 2.2, -14);
+  arch.name = 'moonpool-arch-frame';
+  arch.position.z = -14;
   scene.add(arch);
+  for (const x of [-2.3, 2.3]) {
+    const base = new T.Mesh(
+      new T.CylinderGeometry(0.43, 0.55, 0.32, 10),
+      archMat,
+    );
+    base.position.set(x, 0, -14);
+    scene.add(base);
+    const collar = new T.Mesh(new T.TorusGeometry(0.26, 0.035, 8, 32), archMat);
+    collar.rotation.x = -Math.PI / 2;
+    collar.position.set(x, 0.38, -14);
+    scene.add(collar);
+    const spout = new T.Mesh(
+      new T.CylinderGeometry(0.14, 0.17, 0.34, 12),
+      archMat,
+    );
+    spout.rotation.x = Math.PI / 2;
+    spout.position.set(x, 2.0, -13.7);
+    scene.add(spout);
+    const basin = new T.Mesh(new T.TorusGeometry(0.43, 0.09, 10, 40), archMat);
+    basin.rotation.x = -Math.PI / 2;
+    basin.position.set(x, 0.04, -13.48);
+    scene.add(basin);
+    const basinFoot = new T.Mesh(
+      new T.CylinderGeometry(0.47, 0.52, 0.12, 24),
+      archMat,
+    );
+    basinFoot.position.set(x, -0.1, -13.48);
+    scene.add(basinFoot);
+    const pool = new T.Mesh(
+      new T.CircleGeometry(0.43, 40),
+      new T.MeshPhysicalMaterial({
+        color: '#80d4d1',
+        roughness: 0.15,
+        transparent: true,
+        opacity: 0.7,
+      }),
+    );
+    pool.rotation.x = -Math.PI / 2;
+    pool.position.set(x, 0.045, -13.48);
+    scene.add(pool);
+  }
   const moon = new T.Mesh(
     new T.SphereGeometry(0.68, 32, 20),
     new T.MeshBasicMaterial({ color: '#fff1dd' }),
@@ -306,9 +366,9 @@ export function createMoonpoolScene() {
   moon.position.set(0, 5, -15);
   moon.scale.z = 0.3;
   scene.add(moon);
-  for (const x of [-1.6, 1.6]) {
+  for (const x of [-2.3, 2.3]) {
     const fall = new T.Mesh(
-      new T.CylinderGeometry(0.09, 0.13, 2.4, 12),
+      new T.CylinderGeometry(0.09, 0.13, 1.9, 12),
       new T.MeshPhysicalMaterial({
         color: '#c6e8ed',
         transparent: true,
@@ -316,7 +376,7 @@ export function createMoonpoolScene() {
         roughness: 0.15,
       }),
     );
-    fall.position.set(x, 1.15, -13);
+    fall.position.set(x, 1.0, -13.48);
     scene.add(fall);
   }
   const sparkleGeo = new T.BufferGeometry(),
