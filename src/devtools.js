@@ -2,6 +2,8 @@ import { fresh } from './save.js';
 import { ensureTides } from './tide.js';
 import { CATALOG } from './catalog.js';
 import { owns } from './progression.js';
+import { claimCompletedSets } from './inventory.js';
+import { claimDecorRewards, rewardsHtml } from './rewards.js';
 export function grantBiomeAccess(s) {
   for (const id of [
     'shovel',
@@ -20,6 +22,28 @@ export function grantBiomeAccess(s) {
   ))
     if (!s.discovered.includes(item.id)) s.discovered.push(item.id);
   ensureTides(s);
+}
+
+// Unlock the catalog without duplicating owned items or awarding the same reward twice.
+export function grantAllCollectibles(state) {
+  const known = new Set(state.discovered);
+  let added = 0;
+  let discovered = 0;
+  for (const item of CATALOG) {
+    if (!known.has(item.id)) {
+      state.discovered.push(item.id);
+      known.add(item.id);
+      discovered++;
+    }
+    if ((state.bag[item.id] || 0) < 1) {
+      state.bag[item.id] = 1;
+      added++;
+    }
+  }
+  state.recent = [...CATALOG.slice(-12).map((item) => item.id).reverse()];
+  const sets = claimCompletedSets(state);
+  const rewards = claimDecorRewards(state);
+  return { added, discovered, sets, rewards, total: CATALOG.length };
 }
 
 // Local developer conveniences. These are not an access-control or cheat-protection system.
@@ -47,6 +71,14 @@ export function devMenuHtml(state) {
       <button class="button-soft" data-action="export">Export current save</button>
     </div>
     <p class="tiny">Infinite money ignores shop prices but keeps collection and equipment unlock requirements. Turning it off returns to your actual saved balance.</p>
+    <div class="divider"></div><h3>Collections & rewards</h3>
+    <p class="lead">Add one of all ${CATALOG.length} treasures to your backpack, including Mythics and biome-exclusive finds. Mark them discovered, complete every collection, and unlock the real collection rewards. Safe to press again: existing quantities and claimed rewards won't be duplicated.</p>
+    <div class="dev-stat"><span>Discovered</span><strong>${CATALOG.filter((i) => state.discovered.includes(i.id)).length} / ${CATALOG.length}</strong></div>
+    <div class="dev-row"><button class="button-soft" data-action="dev-add-all">✦ Add all ${CATALOG.length} collectibles + rewards</button>
+    <button class="button-soft" data-action="dev-open-journal">Open collection journal</button>
+    <button class="button-soft" data-action="dev-view-cottage">View rewards in cottage</button></div>
+    <p class="tiny">This changes your saved progress. Export your save first if you want to return to your original collection.</p>
+    ${rewardsHtml(state, true)}
     <div class="divider"></div><h3>Biome playtesting</h3>
     <p class="tiny">Granting access changes this save: tools, cave access, 15 cave discoveries and Moonpool access. Travel preserves every daily find.</p>
     <button class="button-soft" data-action="dev-grant-biomes">Grant cave & Moonpool access</button>
