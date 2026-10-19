@@ -8,20 +8,22 @@ import {
   addContactShadow,
   disposeContactShadow,
 } from './surfaces.js';
-import { grainTexture } from './visuals.js';
+import { grainTexture, fieldNoise, ambientTime } from './visuals.js';
+import { cragGeometry, addMotes } from './landscape.js';
 const V = (x, y, z) => new T.Vector3(x, y, z);
 export function createCaveScene() {
   const scene = new T.Scene();
   scene.background = new T.Color('#1d333e');
-  scene.userData.exposure = 1.09;
-  scene.userData.environmentIntensity = 0.16;
+  scene.userData.exposure = 1.02;
+  scene.userData.environmentIntensity = 0.13;
+  scene.userData.finishCool = 0.022;
   scene.fog = new T.FogExp2('#283c46', 0.028);
   const camera = new T.PerspectiveCamera(72, 1, 0.1, 90);
   camera.position.set(0, 1.7, 2);
   camera.rotation.order = 'YXZ';
-  scene.add(new T.HemisphereLight('#bbd7d5', '#66546e', 1.25));
+  scene.add(new T.HemisphereLight('#9abbc2', '#354452', 1.05));
   const rock = new T.MeshStandardMaterial({
-    color: '#697980',
+    color: '#8c9c9c',
     roughness: 0.94,
     map: grainTexture(),
     side: T.DoubleSide,
@@ -49,6 +51,19 @@ export function createCaveScene() {
   geo.setIndex(indices);
   geo.computeVertexNormals();
   const vault = new T.Mesh(geo, rock);
+  const colors = [],
+    tint = new T.Color();
+  for (let i = 0; i < vertices.length; i += 3) {
+    const [x, y, z] = vertices.slice(i, i + 3),
+      n = fieldNoise(z * 0.8 + 13, y * 1.6 + x * 0.2);
+    tint.set('#c7caba').lerp(new T.Color('#99adb0'), n * 0.6);
+    tint.multiplyScalar(0.85 + Math.sin(y * 11 + z * 0.8) * 0.075);
+    colors.push(tint.r, tint.g, tint.b);
+  }
+  geo.setAttribute('color', new T.Float32BufferAttribute(colors, 3));
+  rock.vertexColors = true;
+  const formationRock = rock.clone();
+  formationRock.vertexColors = false;
   scene.add(vault);
   const uv = [];
   for (let j = 0; j <= rows; j++)
@@ -57,7 +72,7 @@ export function createCaveScene() {
   const ground = new T.Mesh(
     new T.PlaneGeometry(17, 32, 12, 24),
     new T.MeshStandardMaterial({
-      color: '#71827f',
+      color: '#606d6b',
       roughness: 0.93,
       map: grainTexture(),
     }),
@@ -68,6 +83,11 @@ export function createCaveScene() {
   ground.receiveShadow = true;
   scene.add(ground);
   const surface = createSurface(GROUND.cave, [ground]);
+  for (const z of [-7, -19]) {
+    const bounce = new T.PointLight('#719baa', 7, 18, 2);
+    bounce.position.set(0, 3.2, z);
+    scene.add(bounce);
+  }
   const glow = new T.MeshStandardMaterial({
     color: '#8fbba3',
     emissive: '#548b71',
@@ -139,7 +159,7 @@ export function createCaveScene() {
         ].map((p) => new T.Vector2(...p)),
         12,
       ),
-      rock,
+      formationRock,
     );
     stalactite.scale.setScalar(0.7 + (j % 4) * 0.2);
     stalactite.rotation.z = Math.PI;
@@ -157,18 +177,18 @@ export function createCaveScene() {
     }
     scene.add(stalactite);
     if (j % 3 === 0) {
-      const stone = new T.Mesh(new T.SphereGeometry(0.65, 16, 12), rock);
+      const stone = new T.Mesh(cragGeometry(j), rock);
       stone.position.set(side * 6.2, 0.2, z);
-      stone.scale.set(1.3, 0.6, 1);
+      stone.scale.set(0.85, 0.39, 0.65);
       scene.add(stone);
     }
   }
   mossTufts.instanceMatrix.needsUpdate = true;
   for (let j = 0; j < 8; j++) {
     if (Math.abs(-7 + j * 2) < 3.2) continue;
-    const boulder = new T.Mesh(new T.SphereGeometry(2, 16, 12), rock);
+    const boulder = new T.Mesh(cragGeometry(j), rock);
     boulder.position.set(-7 + j * 2, Math.sin(j) * 0.3, -25);
-    boulder.scale.set(1.2, 1.3, 1);
+    boulder.scale.set(2.4, 2.6, 2);
     scene.add(boulder);
   }
   const waters = [];
@@ -219,6 +239,13 @@ export function createCaveScene() {
   const lantern = new T.PointLight('#f1d7ae', 7, 11, 2);
   scene.add(lantern);
   const finds = [];
+  const dust = addMotes(scene, {
+    bounds: [12, 4, 27],
+    origin: [0, 0.5, -10],
+    count: 32,
+    color: '#96c8c1',
+    opacity: 0.24,
+  });
   function spawn(item, method, x, z, uid) {
     const g = new T.Group();
     g.position.set(x, 0, z);
@@ -245,6 +272,8 @@ export function createCaveScene() {
     for (const g of [...finds]) remove(g);
   }
   function update(t, hasLantern, dt = 0.016) {
+    t = ambientTime(t);
+    dust.update(t);
     moonpoolPassage.update(dt);
     lantern.position.copy(camera.position);
     lantern.intensity = hasLantern ? 10 : 3;

@@ -1,4 +1,5 @@
 import * as T from 'three';
+import { grainTexture } from './visuals.js';
 // A carved arch with one explicit moving obstruction. Geometry and traversal
 // use the same animation state; existing unlocks snap open on load.
 export function createRockPassage({ glowing = false } = {}) {
@@ -16,8 +17,9 @@ export function createRockPassage({ glowing = false } = {}) {
   shape.lineTo(-1.9, 0);
   shape.closePath();
   const rock = new T.MeshStandardMaterial({
-    color: glowing ? '#858a9b' : '#b7b2a3',
+    color: glowing ? '#758895' : '#a2ac9b',
     roughness: 0.88,
+    map: grainTexture(),
   });
   const arch = new T.Mesh(
     new T.ExtrudeGeometry(shape, {
@@ -41,6 +43,7 @@ export function createRockPassage({ glowing = false } = {}) {
     new T.MeshPhysicalMaterial({
       color: glowing ? '#adc5ce' : '#a9ae9f',
       roughness: 0.65,
+      map: grainTexture(),
       iridescence: glowing ? 0.55 : 0,
     }),
   );

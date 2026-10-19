@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { createStudioEnvironment } from './visuals.js';
+import {
+  createStudioEnvironment,
+  createSkyEnvironment,
+  createCoastalRenderer,
+} from './visuals.js';
 import './style.css';
 import {
   CATALOG,
@@ -100,7 +104,9 @@ const beach = createBeachScene(),
   shelf = createShelfScene();
 let cave, moonpool, worldEnvironment;
 function applyEnvironment(w) {
-  if (worldEnvironment) w.scene.environment = worldEnvironment.texture;
+  if (worldEnvironment)
+    w.scene.environment =
+      worldEnvironment[w.scene.userData.environmentStyle || 'studio'].texture;
   w.scene.environmentIntensity = w.scene.userData.environmentIntensity ?? 0.28;
   return w;
 }
@@ -125,9 +131,19 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.08;
-worldEnvironment = createStudioEnvironment(renderer);
+worldEnvironment = {
+  studio: createStudioEnvironment(renderer),
+  coast: createSkyEnvironment(renderer, '#526779', '#dcaa83', {
+    sun: [-0.43, 0.2, -0.88],
+    clouds: 0.7,
+  }),
+  moonpool: createSkyEnvironment(renderer, '#192a43', '#82718b', {
+    clouds: 0.25,
+  }),
+};
 applyEnvironment(beach);
 applyEnvironment(shelf);
+const coastalRenderer = createCoastalRenderer(renderer);
 $('game').append(renderer.domElement);
 renderer.domElement.tabIndex = 0;
 const cottageControls = new OrbitControls(shelf.camera, renderer.domElement);
@@ -860,6 +876,7 @@ function help() {
 }
 function resize() {
   renderer.setSize(innerWidth, innerHeight);
+  coastalRenderer.resize(innerWidth, innerHeight);
   for (const w of [beach, shelf, cave, moonpool].filter(Boolean)) {
     w.camera.aspect = innerWidth / innerHeight;
     w.camera.updateProjectionMatrix();
@@ -1498,7 +1515,7 @@ function animate() {
   }
   const w = mode === 'shelf' ? shelf : currentWorld();
   renderer.toneMappingExposure = w.scene.userData.exposure ?? 1.08;
-  renderer.render(w.scene, w.camera);
+  coastalRenderer.render(w.scene, w.camera, dt);
   renderMuseum(t);
 }
 animate();

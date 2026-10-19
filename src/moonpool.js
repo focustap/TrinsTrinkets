@@ -9,22 +9,37 @@ import {
   softDiscTexture,
 } from './surfaces.js';
 import { waterLily } from './scenery.js';
-import { grainTexture, addSky } from './visuals.js';
+import {
+  grainTexture,
+  addSky,
+  waterNormalTexture,
+  ambientTime,
+} from './visuals.js';
+import {
+  cragGeometry,
+  cragMaterial,
+  coastalFir,
+  updateFoliage,
+} from './landscape.js';
+import { batch } from './scenery.js';
 const V = (x, y, z) => new T.Vector3(x, y, z);
 export function createMoonpoolScene() {
   const scene = new T.Scene();
-  scene.background = new T.Color('#aebfda');
-  scene.userData.exposure = 1.07;
-  scene.userData.environmentIntensity = 0.2;
-  addSky(scene, '#949fc5', '#dfcfdc');
-  scene.fog = new T.FogExp2('#b9d1dc', 0.011);
+  scene.background = new T.Color('#29384d');
+  scene.userData.exposure = 0.98;
+  scene.userData.environmentIntensity = 0.16;
+  scene.userData.environmentStyle = 'moonpool';
+  scene.userData.finishCool = 0.025;
+  scene.userData.finishWarm = 0.006;
+  addSky(scene, '#192a43', '#82718b', { clouds: 0.25 });
+  scene.fog = new T.Fog('#4e6274', 16, 70);
   const camera = new T.PerspectiveCamera(67, 1, 0.1, 100);
   camera.position.set(0, 1.7, 5.2);
   camera.rotation.order = 'YXZ';
   camera.rotation.x = -0.06;
-  scene.add(new T.HemisphereLight('#e5dffb', '#5b9e9c', 1.3));
-  const sun = new T.DirectionalLight('#fff1df', 2.1);
-  sun.position.set(-8, 16, 6);
+  scene.add(new T.HemisphereLight('#a1b7dc', '#213b42', 0.72));
+  const sun = new T.DirectionalLight('#afc7ea', 2.1);
+  sun.position.set(-4, 12, -14);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.left = -16;
@@ -34,15 +49,13 @@ export function createMoonpoolScene() {
   sun.shadow.bias = -0.0001;
   sun.shadow.normalBias = 0.01;
   scene.add(sun);
-  const stone = new T.MeshStandardMaterial({
-      color: '#a1abae',
-      roughness: 0.86,
-      map: grainTexture(),
-    }),
+  const floorGrain = grainTexture().clone();
+  floorGrain.repeat.set(0.2, 0.2);
+  const stone = cragMaterial('#a4b9bf'),
     pale = new T.MeshStandardMaterial({
-      color: '#d6cfc7',
+      color: '#a4b5b4',
       roughness: 0.95,
-      map: grainTexture(),
+      map: floorGrain,
     });
   const POOLS = [
     [-5.2, -1, 3, 4],
@@ -77,7 +90,7 @@ export function createMoonpoolScene() {
   floor.name = 'moonpool-ground';
   scene.add(floor);
   const surface = createSurface(GROUND.moonpool, [floor]);
-  const rockGeo = new T.SphereGeometry(1, 18, 12),
+  const rockGeo = cragGeometry(2),
     rock = (x, y, z, sx, sy, sz) => {
       const o = new T.Mesh(rockGeo, stone);
       o.position.set(x, y, z);
@@ -96,6 +109,24 @@ export function createMoonpoolScene() {
     rock(x, y, z, 1.7, y + 1, 1.5);
     if (k % 3 === 0) rock(x * 0.95, y + 1.3, z, 1.3, 1.1, 1.3);
   }
+  const treeLine = new T.Group();
+  for (let k = 0; k < 28; k++) {
+    const a = (k / 28) * Math.PI * 2,
+      x = Math.sin(a) * 18,
+      z = -3 + Math.cos(a) * 21;
+    if (z > 8 && Math.abs(x) < 6) continue;
+    const tree = coastalFir(k);
+    tree.position.set(
+      x + Math.sin(k * 3.7) * 1.4,
+      1.5,
+      z + Math.sin(k * 2.9) * 1.5,
+    );
+    tree.scale.setScalar(0.6 + Math.abs(Math.sin(k * 5.3)) * 0.55);
+    treeLine.add(tree);
+  }
+  batch(treeLine);
+  treeLine.name = 'moonpool-tree-line';
+  scene.add(treeLine);
   // A warm, open grotto: pools are below the shallow, walkable shoreline.
   const waters = [],
     caustics = [],
@@ -112,8 +143,8 @@ export function createMoonpoolScene() {
     const bedPositions = [0, 0, 0],
       bedColors = [],
       bedIndices = [];
-    const deep = new T.Color('#62aaa8'),
-      shallow = new T.Color('#b5dcca');
+    const deep = new T.Color('#2f8e90'),
+      shallow = new T.Color('#82c3b3');
     bedColors.push(deep.r, deep.g, deep.b);
     outline.forEach(([px, pz], j) => {
       bedPositions.push(px, 0, pz);
@@ -140,6 +171,8 @@ export function createMoonpoolScene() {
     scene.add(bed);
     surface.meshes.push(bed);
     const geo = poolGeometry.clone();
+    const rippleNormal = waterNormalTexture().clone();
+    rippleNormal.repeat.set(0.32, 0.32);
     const water = new T.Mesh(
       geo,
       new T.MeshPhysicalMaterial({
@@ -149,12 +182,17 @@ export function createMoonpoolScene() {
         transparent: true,
         opacity: 0.45,
         clearcoat: 1,
+        normalMap: rippleNormal,
+        normalScale: new T.Vector2(0.12, 0.12),
         side: T.DoubleSide,
       }),
     );
     water.position.set(x, -0.175, z);
     scene.add(water);
     waters.push(water);
+    const poolLight = new T.PointLight('#71c5be', 9, 9, 2);
+    poolLight.position.set(x, 0.75, z);
+    scene.add(poolLight);
     // Visible stones under the clear shallows, and luminous lilies at the edges.
     const pebbles = new T.InstancedMesh(
       new T.IcosahedronGeometry(1, 1),
@@ -263,6 +301,18 @@ export function createMoonpoolScene() {
     scene.add(model);
     restOnSurface(model, surface, 0.012);
     addContactShadow(scene, model, surface, 0.16);
+    if (j % 2 === 0) {
+      const coralLight = new T.PointLight('#d995a0', 3, 5, 2);
+      coralLight.position.set(x, 0.6, z);
+      scene.add(coralLight);
+    }
+    model.traverse((o) => {
+      if (o.isMesh) {
+        o.material = o.material.clone();
+        o.material.emissive?.set(j % 2 ? '#71468b' : '#8c4d66');
+        o.material.emissiveIntensity = 0.15;
+      }
+    });
     for (let k = 0; k < 5; k++) {
       const stem = new T.Mesh(
         new T.CylinderGeometry(0.018, 0.032, 0.25 + k * 0.04, 7),
@@ -495,7 +545,7 @@ export function createMoonpoolScene() {
   halo.position.copy(moon.position);
   halo.scale.set(3, 3, 1);
   scene.add(halo);
-  const moonlight = new T.PointLight('#d8c6e5', 6, 10, 2);
+  const moonlight = new T.PointLight('#c4d2ec', 10, 12, 2);
   moonlight.position.set(0, 3.6, -12.5);
   scene.add(moonlight);
   for (const x of [-2.3, 2.3]) {
@@ -565,9 +615,13 @@ export function createMoonpoolScene() {
     for (const g of [...finds]) remove(g);
   }
   function update(t) {
+    t = ambientTime(t);
+    updateFoliage(t);
+    scene.userData.sky.material.uniforms.time.value = t;
     waters.forEach((w, j) => {
       w.position.y = -0.175 + Math.sin(t * 0.7 + j) * 0.004;
       w.material.opacity = 0.43 + Math.sin(t * 0.4 + j) * 0.025;
+      w.material.normalMap.offset.set(t * 0.0018, t * 0.001);
     });
     waterPlants.forEach(({ lily, water }) => {
       lily.position.y = water.position.y + 0.003;
