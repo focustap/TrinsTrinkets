@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fresh, migrateSave, writeSave, loadSave, SAVE_KEY } from '../src/save.js';
-import { toggleUnlimitedMoney, resetProgress, DEV_SEQUENCE } from '../src/devtools.js';
+import { toggleUnlimitedMoney, resetProgress, grantAllCollectibles, devMenuHtml, DEV_SEQUENCE } from '../src/devtools.js';
+import { CATALOG, SETS } from '../src/catalog.js';
+import { DECOR_REWARDS } from '../src/rewards.js';
 import { purchase, purchaseReason } from '../src/progression.js';
 
 test('hidden developer controls preserve prices and normal balance', () => {
@@ -63,4 +65,56 @@ test('developer money setting survives save migration and can be disabled', () =
   assert.equal(loaded.devInfiniteMoney,false);
   assert.equal(loaded.coins,5);
   assert.ok(store.has(SAVE_KEY));
+});
+
+test('grant-all unlocks the entire catalog, real milestone rewards and completed sets exactly once', () => {
+  const s = fresh();
+  s.coins = 105;
+  const alreadyOwned = CATALOG[0].id;
+  s.bag[alreadyOwned] = 4;
+  s.discovered.push(alreadyOwned);
+  const result = grantAllCollectibles(s);
+  assert.equal(result.total, CATALOG.length);
+  assert.equal(result.added, CATALOG.length - 1);
+  assert.equal(result.discovered, CATALOG.length - 1);
+  assert.equal(s.discovered.length, CATALOG.length);
+  assert.equal(new Set(s.discovered).size, CATALOG.length);
+  assert.equal(Object.keys(s.bag).length, CATALOG.length);
+  assert.equal(s.bag[alreadyOwned], 4, 'existing copies are preserved');
+  assert.ok(CATALOG.every(item => s.bag[item.id] >= 1));
+  assert.deepEqual(new Set(s.claimed),new Set(SETS));
+  assert.deepEqual(new Set(s.rewardDecor),new Set(DECOR_REWARDS.map(r=>r.id)));
+  assert.equal(s.coins, 105 + (SETS.length - 1) * 500, 'real completed-set rewards are credited once');
+  const snapshot = structuredClone(s);
+  const again = grantAllCollectibles(s);
+  assert.equal(again.added, 0);
+  assert.equal(again.discovered, 0);
+  assert.deepEqual(again.sets, []);
+  assert.deepEqual(again.rewards, []);
+  assert.deepEqual(s, snapshot, 'repeated grant must not change the save');
+  const html = devMenuHtml(s);
+  assert.ok(html.includes('dev-add-all'));
+  assert.ok(html.includes('dev-open-journal'));
+  assert.ok(html.includes('dev-view-cottage'));
+  assert.ok(html.includes('Moonpool Aquarium') || html.includes('Moonpool aquarium'));
+});
+
+test('granted collectibles and rewards persist after refresh and reset can clear everything', () => {
+  const storage = new Map();
+  const adapter={getItem:key=>storage.get(key)??null,setItem:(key,val)=>storage.set(key,val)};
+  const s = fresh();
+  grantAllCollectibles(s);
+  assert.equal(writeSave(adapter,s).ok,true);
+  const after = loadSave(adapter).state;
+  assert.equal(after.discovered.length, CATALOG.length);
+  assert.equal(after.rewardDecor.length,DECOR_REWARDS.length);
+  assert.equal(after.claimed.length,SETS.length);
+  assert.ok(after.bag[CATALOG.at(-1).id]>=1);
+  resetProgress(after,()=>0.2);
+  assert.equal(after.day,1);
+  assert.equal(after.coins,0);
+  assert.deepEqual(after.bag,{});
+  assert.deepEqual(after.discovered,[]);
+  assert.deepEqual(after.rewardDecor,[]);
+  assert.deepEqual(after.claimed,[]);
 });
