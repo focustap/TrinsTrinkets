@@ -7,6 +7,30 @@ export function previewState(kind) {
   const s = fresh();
   s.coins = 60000;
   s.day = 32;
+  if (kind === 'grounding')
+    s.beachFinds = [
+      {
+        uid: 'ground-a',
+        itemId: 'sand-dollar',
+        method: 'surface',
+        x: -0.7,
+        z: 1.5,
+      },
+      {
+        uid: 'ground-b',
+        itemId: 'pink-scallop',
+        method: 'surface',
+        x: 1.4,
+        z: 0.3,
+      },
+      {
+        uid: 'ground-c',
+        itemId: CATALOG.find((i) => i.type === 'starfish').id,
+        method: 'surface',
+        x: 2.6,
+        z: -3,
+      },
+    ];
   s.discovered = CATALOG.slice(0, 32).map((i) => i.id);
   s.bag = Object.fromEntries(CATALOG.map((i) => [i.id, 2]));
   if (kind === 'legacy') {

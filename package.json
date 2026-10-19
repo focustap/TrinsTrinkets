@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node --test tests/systems.test.mjs tests/economy.test.mjs tests/devtools.test.mjs tests/moonpool.test.mjs && node scripts/check-models.mjs",
+    "test": "node --test tests/systems.test.mjs tests/economy.test.mjs tests/devtools.test.mjs tests/moonpool.test.mjs tests/grounding.test.mjs && node scripts/check-models.mjs",
     "balance": "node scripts/simulate-economy.mjs"
   },
   "dependencies": {

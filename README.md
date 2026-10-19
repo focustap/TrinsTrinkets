@@ -74,6 +74,8 @@ Append **`?gallery=1`** to the game URL, or open **How to play → Developer mod
 
 Developer preview URLs use disposable in-memory fixtures and **never read or write the player save**:
 
+- `?preview=grounding`: close beach view with fixed shoreline finds for checking contact, shadows and plants.
+- `?preview=cottage-exterior`: finished cottage facade; add `&angle=side` for the roof.
 - `?preview=cottage`: 70 displayed pieces, every furniture upgrade, and sample wall artwork.
 - `?preview=cave`: unlocked cave, lantern, pick and cave deposits.
 - `?preview=moonpool`: unlocked colorful pools, plants, crystal gardens and ten discoveries.
@@ -102,3 +104,9 @@ For hidden developer controls, type **PEARL** in the game (outside input fields)
 ## GitHub Pages
 
 The existing relative Vite base is retained. `.github/workflows/pages.yml` installs from the lockfile, tests, builds and deploys on pushes to `main` or a manual workflow dispatch. `check.yml` tests and builds pull requests. Pages must use **GitHub Actions** as its build source. The Three.js vendor chunk is cached separately from authored game code.
+
+## Visual polish and physical placement
+
+All world finds and rooted scenery rest on the rendered ground or a physical stepping stone/pool bed, with soft contact shadows. Objects no longer rotate above the beach. Coastal plants and driftwood use organic meshes; Moonpool lilies sit on the water instead of ornamental pedestals. The Moonpool has shallow recessed pools, sloping banks and clear, gently moving water. The cave ceiling anchors its hanging formations. Cottage cabinetry and shelves have visible supports, and the original 96 placement coordinates are preserved.
+
+Lighting uses a shared studio reflection environment, biome exposure settings and softer sky gradients. The gallery has neutral inspection lighting and contact shadows. Consistent SVG menu icons, readable location cards, nonoverlapping prompts and narrower-screen layouts keep the interface quiet. Environmental layout is deterministic across reloads; loot generation and existing saved tides are unchanged.

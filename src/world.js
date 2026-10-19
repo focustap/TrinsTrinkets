@@ -5,6 +5,18 @@ import { shelfSlots } from './shelves.js';
 import { owns, SHOP_COLORS, WOODS } from './progression.js';
 import { createRockPassage } from './passage.js';
 import { createRewardDecor } from './reward-art.js';
+import {
+  GROUND,
+  sceneryRandom,
+  discoveryAngle,
+  createSurface,
+  restOnSurface,
+  addContactShadow,
+  disposeContactShadow,
+  softDiscTexture,
+} from './surfaces.js';
+import { grassClump, wildflower, driftwood, pottedPlant } from './scenery.js';
+import { grainTexture, addSky } from './visuals.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const box = (w, h, d, material, x = 0, y = 0, z = 0) => {
@@ -84,15 +96,16 @@ function sandTexture() {
   if (typeof document === 'undefined') return null;
   const c = document.createElement('canvas');
   c.width = c.height = 256;
-  const g = c.getContext('2d');
+  const g = c.getContext('2d'),
+    random = sceneryRandom(352);
   g.fillStyle = '#efd8b0';
   g.fillRect(0, 0, 256, 256);
   for (let i = 0; i < 3600; i++) {
-    const x = Math.random() * 256,
-      y = Math.random() * 256;
+    const x = random() * 256,
+      y = random() * 256;
     g.fillStyle =
       i % 3 === 0 ? 'rgba(255,255,242,.20)' : 'rgba(166,122,89,.10)';
-    g.fillRect(x, y, Math.random() * 2 + 0.3, Math.random() * 2 + 0.3);
+    g.fillRect(x, y, random() * 2 + 0.3, random() * 2 + 0.3);
   }
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -101,40 +114,13 @@ function sandTexture() {
   return t;
 }
 
-function flower(x, z, color = '#f5a3b7') {
-  const g = new THREE.Group();
-  const stem = mat('#8eaa75'),
-    petal = mat(color),
-    yellow = mat('#f4cd68');
-  const stemMesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.025, 0.035, 0.42, 6),
-    stem,
-  );
-  stemMesh.position.y = 0.23;
-  g.add(stemMesh);
-  for (let k = 0; k < 5; k++) {
-    const a = (k * Math.PI * 2) / 5;
-    g.add(
-      ball(0.1, petal, Math.sin(a) * 0.12, 0.5 + Math.cos(a) * 0.12, 0.02, 9),
-    );
-  }
-  g.add(ball(0.077, yellow, 0, 0.5, 0.035));
+function flower(x, z, color = '#e6adbd') {
+  const g = wildflower(color, Math.round(Math.abs(x + z)) % 3);
   g.position.set(x, 0, z);
   return g;
 }
 function grasses(x, z) {
-  const g = new THREE.Group(),
-    green = mat('#88ab80');
-  for (let i = 0; i < 6; i++) {
-    const blade = new THREE.Mesh(
-      new THREE.ConeGeometry(0.045, 0.38 + Math.random() * 0.35, 4),
-      green,
-    );
-    const a = i * 2.4;
-    blade.position.set(Math.cos(a) * 0.15, 0.25, Math.sin(a) * 0.15);
-    blade.rotation.z = (Math.random() - 0.5) * 0.38;
-    g.add(blade);
-  }
+  const g = grassClump(Math.round(Math.abs(x * 3 + z)) % 5);
   g.position.set(x, 0, z);
   return g;
 }
@@ -263,6 +249,7 @@ function makeCottage(scene) {
     );
     stone.position.set(Math.sin(i * 0.7) * 0.6, 0.04, -3.9 - i * 0.75);
     house.add(stone);
+    restOnSurface(stone, GROUND.beach, 0.008);
   }
   scene.add(house);
   return V(-7.5, 0, 7.9);
@@ -308,6 +295,7 @@ function makeExchange(scene) {
   price.position.set(1.2, 1.04, -1.45);
   s.add(price);
   scene.add(s);
+  restOnSurface(s, GROUND.beach, 0.01);
   return V(7.5, 0, 8.2);
 }
 
@@ -338,30 +326,43 @@ function rounded(w, h, d, r, material, x = 0, y = 0, z = 0) {
   return m;
 }
 export function createBeachScene() {
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#a7dfe5');
-  scene.fog = new THREE.FogExp2('#a7dfe5', 0.0075);
+  const scene = new THREE.Scene(),
+    random = sceneryRandom(7321);
+  scene.background = new THREE.Color('#a6d8dc');
+  scene.userData.exposure = 1.08;
+  addSky(scene, '#8ec6d0', '#e7e5ce');
+  scene.fog = new THREE.FogExp2('#b8dddc', 0.009);
   const camera = new THREE.PerspectiveCamera(72, 1, 0.1, 220);
   camera.position.set(0, 1.7, 2);
   camera.rotation.order = 'YXZ';
-  scene.add(new THREE.HemisphereLight('#ffeed4', '#81bdb2', 2.05));
-  const sunlight = new THREE.DirectionalLight('#fff2cc', 2.55);
+  scene.add(new THREE.HemisphereLight('#ffeed4', '#6c9e95', 1.55));
+  const sunlight = new THREE.DirectionalLight('#fff0d6', 2.4);
   sunlight.position.set(-25, 35, -35);
   sunlight.castShadow = true;
   sunlight.shadow.mapSize.set(2048, 2048);
-  sunlight.shadow.camera.left = -40;
-  sunlight.shadow.camera.right = 40;
-  sunlight.shadow.camera.top = 45;
-  sunlight.shadow.camera.bottom = -40;
+  sunlight.shadow.camera.left = -27;
+  sunlight.shadow.camera.right = 27;
+  sunlight.shadow.camera.top = 28;
+  sunlight.shadow.camera.bottom = -26;
+  sunlight.shadow.bias = -0.00012;
+  sunlight.shadow.normalBias = 0.012;
   scene.add(sunlight);
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(39, 38),
     new THREE.MeshStandardMaterial({ map: sandTexture(), roughness: 1 }),
   );
   ground.rotation.x = -Math.PI / 2;
-  ground.position.set(0, -0.08, 3);
+  ground.position.set(0, GROUND.beach, 3);
+  ground.name = 'beach-ground';
   ground.receiveShadow = true;
   scene.add(ground);
+  const surface = createSurface(GROUND.beach, [ground]);
+  const groundObject = (object, shadow = false) => {
+    scene.add(object);
+    restOnSurface(object, surface, 0.008);
+    if (shadow) addContactShadow(scene, object, surface, 0.14);
+    return object;
+  };
   const wet = new THREE.Mesh(
     new THREE.PlaneGeometry(39, 2.4),
     new THREE.MeshStandardMaterial({
@@ -372,15 +373,29 @@ export function createBeachScene() {
     }),
   );
   wet.rotation.x = -Math.PI / 2;
-  wet.position.set(0, -0.05, -14.9);
+  wet.position.set(0, GROUND.beach + 0.001, -14.9);
   scene.add(wet);
   const oceanGeo = new THREE.PlaneGeometry(95, 120, 64, 35);
   oceanGeo.rotateX(-Math.PI / 2);
   const base = new Float32Array(oceanGeo.attributes.position.array);
+  const oceanColors = [];
+  for (let i = 0; i < oceanGeo.attributes.position.count; i++) {
+    const z = base[i * 3 + 2] - 76;
+    const c = new THREE.Color('#99d4c8').lerp(
+      new THREE.Color('#489ba8'),
+      Math.min(1, Math.max(0, (-z - 16) / 70)),
+    );
+    oceanColors.push(c.r, c.g, c.b);
+  }
+  oceanGeo.setAttribute(
+    'color',
+    new THREE.Float32BufferAttribute(oceanColors, 3),
+  );
   const water = new THREE.Mesh(
     oceanGeo,
     new THREE.MeshPhysicalMaterial({
-      color: '#69c8cc',
+      color: '#ffffff',
+      vertexColors: true,
       roughness: 0.27,
       metalness: 0.12,
       transparent: true,
@@ -389,33 +404,53 @@ export function createBeachScene() {
       side: THREE.DoubleSide,
     }),
   );
-  water.position.set(0, -0.2, -76);
+  water.position.set(0, -0.16, -76);
   scene.add(water);
+  const waveHeight = (x, z, t) =>
+    -0.16 +
+    Math.sin((z + 76) * 0.22 + t * 1.4 + x * 0.07) * 0.07 +
+    Math.sin(x * 0.12 - t * 0.8) * 0.025;
   const foam = [];
-  for (let i = 0; i < 7; i++) {
-    const f = new THREE.Mesh(
-      new THREE.PlaneGeometry(39, 0.15 + i * 0.034),
+  for (let i = 0; i < 4; i++) {
+    const geometry = new THREE.PlaneGeometry(39, 0.1 + i * 0.04, 64, 1);
+    geometry.rotateX(-Math.PI / 2);
+    const ribbon = new THREE.Mesh(
+      geometry,
       new THREE.MeshBasicMaterial({
-        color: '#fbffea',
+        color: '#eff5db',
         transparent: true,
-        opacity: 0.55,
+        opacity: 0.22,
+        depthWrite: false,
         side: THREE.DoubleSide,
       }),
     );
-    f.rotation.x = -Math.PI / 2;
-    f.position.set(0, 0.015, -16 - i * 0.46);
-    scene.add(f);
-    foam.push(f);
+    ribbon.userData.base = new Float32Array(geometry.attributes.position.array);
+    scene.add(ribbon);
+    foam.push(ribbon);
   }
   const sun = ball(
     7,
-    new THREE.MeshBasicMaterial({ color: '#fff0cf' }),
+    new THREE.MeshBasicMaterial({ color: '#fff0cf', fog: false }),
     -27,
     27,
     -110,
     32,
   );
   scene.add(sun);
+  for (let j = 0; j < 5; j++) {
+    const cloud = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: softDiscTexture(),
+        color: '#fff2d9',
+        transparent: true,
+        opacity: 0.15,
+        depthWrite: false,
+      }),
+    );
+    cloud.scale.set(25, 6, 1);
+    cloud.position.set(-44 + j * 22, 15 + Math.sin(j) * 3, -90);
+    scene.add(cloud);
+  }
   // A compact, sheltered cove replaces the original featureless open sand plain.
   // Curved rocky edges and dune grass make the playable area feel intentionally small.
   const rockMats = [mat('#c0aca0'), mat('#d2bca8'), mat('#aeb5a8')];
@@ -423,23 +458,23 @@ export function createBeachScene() {
     grass = mat('#9aaf86');
   for (const side of [-1, 1]) {
     for (let i = 0; i < 25; i++) {
-      const z = -16 + i * 1.54 + (Math.random() - 0.5) * 0.7;
-      const x = side * (16 + Math.sin(i * 0.47) * 1.3 + Math.random() * 0.5);
-      const radius = 1.45 + Math.random() * 1.4;
+      const z = -16 + i * 1.54 + (random() - 0.5) * 0.7;
+      const x = side * (16 + Math.sin(i * 0.47) * 1.3 + random() * 0.5);
+      const radius = 1.45 + random() * 1.4;
       if (side === 1 && z + radius * 1.65 > -1.6 && z - radius * 1.65 < 3.6)
         continue;
       const stone = ball(radius, rockMats[i % 3], x, radius * 0.36, z, 9);
-      stone.scale.set(1.15, 0.6, 1.0 + Math.random() * 0.4);
-      stone.rotation.y = Math.random() * 3;
+      stone.scale.set(1.15, 0.6, 1.0 + random() * 0.4);
+      stone.rotation.y = random() * 3;
       scene.add(stone);
-      if (i % 2 === 0) scene.add(grasses(x - side * 1.5, z));
+      if (i % 2 === 0) groundObject(grasses(x - side * 1.5, z));
     }
   }
   for (let i = 0; i < 23; i++) {
     const x = -18 + i * 1.65,
       z = 20 + Math.sin(i * 0.5) * 1.4;
     const hill = ball(
-      2.2 + Math.random() * 1.4,
+      2.2 + random() * 1.4,
       i % 3 === 0 ? rockMats[1] : dune,
       x,
       0.7,
@@ -450,42 +485,31 @@ export function createBeachScene() {
     scene.add(hill);
   }
   for (let i = 0; i < 45; i++) {
-    const x = (Math.random() - 0.5) * 29,
-      z = Math.random() * 30 - 12;
+    const x = (random() - 0.5) * 29,
+      z = random() * 30 - 12;
     if ((x > -11.5 && x < -3.5 && z > 7) || (x > 4 && x < 11 && z > 7))
       continue;
     if (i % 5 === 0)
-      scene.add(flower(x, z, ['#ffc3c5', '#fff4e5', '#cdbce5'][i % 3]));
-    else scene.add(grasses(x, z));
+      groundObject(
+        flower(x, z, ['#e8acb3', '#eee2ce', '#b9a4d2'][i % 3]),
+        true,
+      );
+    else groundObject(grasses(x, z));
   }
   for (let i = 0; i < 34; i++) {
-    const x = (Math.random() - 0.5) * 29,
-      z = Math.random() * 29 - 13;
-    const stone = ball(
-      0.06 + Math.random() * 0.15,
-      rockMats[i % 3],
-      x,
-      0.05,
-      z,
-      8,
-    );
+    const x = (random() - 0.5) * 29,
+      z = random() * 29 - 13;
+    const stone = ball(0.06 + random() * 0.15, rockMats[i % 3], x, 0.05, z, 8);
     stone.scale.set(1, 0.45, 1.2);
-    scene.add(stone);
+    groundObject(stone, true);
   }
   for (let i = 0; i < 7; i++) {
-    const x = (Math.random() - 0.5) * 26,
-      z = Math.random() * 27 - 12;
-    const drift = box(
-      0.8 + Math.random() * 0.8,
-      0.11,
-      0.16,
-      mat('#b1a394'),
-      x,
-      0.09,
-      z,
-    );
-    drift.rotation.y = Math.random() * Math.PI;
-    scene.add(drift);
+    const x = i === 0 ? -3.5 : (random() - 0.5) * 26,
+      z = i === 0 ? -1.5 : random() * 27 - 12;
+    const drift = driftwood(i);
+    drift.position.set(x, 0, z);
+    drift.rotation.y = random() * Math.PI;
+    groundObject(drift, true);
   }
   const cottage = makeCottage(scene),
     exchange = makeExchange(scene);
@@ -523,11 +547,13 @@ export function createBeachScene() {
     }
   for (const z of [-1, 3])
     for (let x = 12; x < 18; x += 1.2) {
-      cavePath.add(box(0.12, 1.25, 0.12, mat('#b29a83'), x, 0.62, z));
+      const post = box(0.12, 1.25, 0.12, mat('#b29a83'), x, 0.62, z);
+      cavePath.add(post);
+      restOnSurface(post, surface);
       cavePath.add(box(1.25, 0.1, 0.1, mat('#d9c2a0'), x, 0.83, z));
     }
   const gate = new THREE.Group();
-  gate.position.set(14.5, 0, -1);
+  gate.position.set(14.5, GROUND.beach, -1);
   scene.add(gate);
   for (let j = 0; j < 6; j++)
     gate.add(box(0.11, 1.25, 0.12, mat('#b69c86'), 0, 0.63, j * 0.7));
@@ -549,6 +575,7 @@ export function createBeachScene() {
   );
   cavePath.add(moss);
   moss.scale.set(1.4, 0.3, 1.1);
+  restOnSurface(moss, surface, 0.025);
   const setGate = (open, animate = false) => {
     entrance.setOpen(open, animate);
     gate.userData.open = open;
@@ -561,22 +588,13 @@ export function createBeachScene() {
     g.userData.find = { item, method, uid };
     if (method === 'surface') {
       const object = treasure(item, 0.88);
-      object.position.y = 0.04;
-      object.rotation.y = Math.random() * 6.28;
+      object.position.y = 0;
+      object.rotation.y = discoveryAngle(uid);
       g.add(object);
-      const shadow = new THREE.Mesh(
-        new THREE.CircleGeometry(0.39, 24),
-        new THREE.MeshBasicMaterial({
-          color: '#a99079',
-          transparent: true,
-          opacity: 0.11,
-        }),
-      );
-      shadow.rotation.x = -Math.PI / 2;
-      shadow.position.y = 0.025;
-      g.add(shadow);
+      restOnSurface(object, GROUND.beach, 0.003);
+      object.name = 'discovery-model';
     } else {
-      const mound = ball(0.49, mat('#e9cda5'), 0, 0.02, 0, 12);
+      const mound = ball(0.49, mat('#e7cfa7'), 0, GROUND.beach + 0.025, 0, 12);
       mound.scale.set(1, 0.21, 0.78);
       g.add(mound);
       if (
@@ -585,7 +603,7 @@ export function createBeachScene() {
         method !== 'professional'
       ) {
         const nub = treasure(item, 0.32);
-        nub.position.set(0, 0.055, 0);
+        nub.position.set(0, GROUND.beach + 0.03, 0);
         g.add(nub);
       } else {
         const ring = new THREE.Mesh(
@@ -598,17 +616,20 @@ export function createBeachScene() {
           }),
         );
         ring.rotation.x = -Math.PI / 2;
-        ring.position.y = 0.07;
+        ring.position.y = GROUND.beach + 0.006;
         g.add(ring);
         g.userData.signal = ring;
         g.visible = false;
       }
     }
     scene.add(g);
+    g.userData.shadow = addContactShadow(scene, g, surface, 0.18);
+    g.userData.shadow.visible = g.visible;
     finds.push(g);
     return g;
   }
   function remove(g) {
+    disposeContactShadow(g.userData.shadow);
     scene.remove(g);
     const i = finds.indexOf(g);
     if (i !== -1) finds.splice(i, 1);
@@ -625,23 +646,34 @@ export function createBeachScene() {
         z = base[i * 3 + 2];
       pos.setY(
         i,
-        Math.sin(z * 0.22 + t * 1.4 + x * 0.07) * 0.19 +
-          Math.sin(x * 0.12 - t * 0.8) * 0.09,
+        Math.sin(z * 0.22 + t * 1.4 + x * 0.07) * 0.07 +
+          Math.sin(x * 0.12 - t * 0.8) * 0.025,
       );
     }
     pos.needsUpdate = true;
     foam.forEach((m, i) => {
-      m.material.opacity = 0.36 + Math.sin(t * 1.6 + i * 0.5) * 0.16;
-      m.position.z = -16 - i * 0.46 + Math.sin(t * 0.7 + i) * 0.18;
+      const p = m.geometry.attributes.position,
+        b = m.userData.base;
+      m.material.opacity = 0.16 + Math.sin(t * 1.2 + i) * 0.06;
+      for (let j = 0; j < p.count; j++) {
+        const x = b[j * 3],
+          z =
+            -16.15 -
+            i * 0.78 +
+            b[j * 3 + 2] +
+            Math.sin(x * 0.2 + i + t * 0.45) * 0.15;
+        p.setXYZ(j, x, waveHeight(x, z, t) + 0.003, z);
+      }
+      p.needsUpdate = true;
+      m.geometry.computeBoundingSphere();
     });
     for (const g of finds) {
       if (['detector', 'coil', 'professional'].includes(g.userData.find.method))
         g.visible = scan && g.position.distanceTo(camera.position) < scanRange;
+      g.userData.shadow.visible = g.visible;
       if (g.userData.signal)
         g.userData.signal.material.opacity =
           0.5 + 0.35 * Math.sin(t * 4 + g.position.x);
-      else if (g.children[0] && g.userData.find.method === 'surface')
-        g.children[0].rotation.y += 0.002;
     }
   }
   return {
@@ -654,19 +686,21 @@ export function createBeachScene() {
     update,
     setGate,
     entrance,
+    surface,
     stations: { cottage, exchange, cave: V(14, 0, 1) },
   };
 }
 
 export function createShelfScene() {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#f9e9e1');
+  scene.background = new THREE.Color('#f3e4db');
+  scene.userData.exposure = 1.02;
   const camera = new THREE.PerspectiveCamera(51, 1, 0.1, 100);
   camera.position.set(0, 2.45, 7.3);
   camera.lookAt(0, 2.2, -2.48);
 
-  scene.add(new THREE.HemisphereLight('#fff6ea', '#c4b1ab', 1.8));
-  const sun = new THREE.DirectionalLight('#fff0db', 2.2);
+  scene.add(new THREE.HemisphereLight('#fff6ea', '#afaba2', 1.45));
+  const sun = new THREE.DirectionalLight('#fff0db', 2.0);
   sun.position.set(-3.8, 7, 5);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -674,7 +708,8 @@ export function createShelfScene() {
   sun.shadow.camera.right = 8;
   sun.shadow.camera.top = 8;
   sun.shadow.camera.bottom = -8;
-  sun.shadow.bias = -0.0003;
+  sun.shadow.bias = -0.00012;
+  sun.shadow.normalBias = 0.009;
   scene.add(sun);
   const fill = new THREE.PointLight('#ffd8bd', 16, 13, 2);
   fill.position.set(2.5, 4.3, 3.7);
@@ -703,7 +738,7 @@ export function createShelfScene() {
   const rug = new THREE.Mesh(new THREE.CircleGeometry(2, 48), mat('#e8b9c6'));
   rug.rotation.x = -Math.PI / 2;
   rug.scale.set(1.65, 1.02, 1);
-  rug.position.set(0, 0.083, 2.25);
+  rug.position.set(0, GROUND.cottage + 0.002, 2.25);
   scene.add(rug);
   const innerRug = new THREE.Mesh(
     new THREE.CircleGeometry(1.71, 48),
@@ -711,7 +746,7 @@ export function createShelfScene() {
   );
   innerRug.rotation.x = -Math.PI / 2;
   innerRug.scale.set(1.6, 1, 1);
-  innerRug.position.set(0, 0.085, 2.25);
+  innerRug.position.set(0, GROUND.cottage + 0.004, 2.25);
   scene.add(innerRug);
 
   // A rounded, upholstered daybed anchors the side of the display room.
@@ -757,7 +792,7 @@ export function createShelfScene() {
   }
   const heights = [1.18, 2.13, 3.07];
   for (const y of heights) {
-    const shelf = rounded(5.58, 0.17, 1.12, 0.068, woodMat, 0, y - 0.095, -2.7);
+    const shelf = rounded(5.58, 0.17, 1.12, 0.068, woodMat, 0, y - 0.085, -2.7);
     displayFrame.add(shelf);
     displayFrame.add(
       rounded(5.52, 0.052, 0.085, 0.026, edge, 0, y - 0.056, -2.115),
@@ -776,6 +811,11 @@ export function createShelfScene() {
       displayFrame.add(bracket);
     }
   }
+  displayFrame.add(rounded(5.65, 0.66, 0.96, 0.07, woodMat, 0, 0.4, -2.78));
+  for (const x of [-1.36, 1.36]) {
+    displayFrame.add(rounded(2.58, 0.4, 0.07, 0.04, cream, x, 0.42, -2.26));
+    displayFrame.add(ball(0.045, bronze, x, 0.44, -2.2));
+  }
   const crown = rounded(5.9, 0.26, 1.1, 0.09, woodMat, 0, 3.9, -2.73);
   displayFrame.add(crown);
   displayFrame.add(rounded(5.65, 0.095, 0.1, 0.032, edge, 0, 3.95, -2.12));
@@ -793,6 +833,7 @@ export function createShelfScene() {
       roughness: 0.22,
     });
   const glowMat = new THREE.SpriteMaterial({
+    map: softDiscTexture(),
     color: '#fff4c3',
     transparent: true,
     opacity: 0.34,
@@ -849,27 +890,13 @@ export function createShelfScene() {
   const wallSun = ball(0.28, mat('#f0d5a9'), 3.9, 3.06, -3.43);
   wallSun.scale.z = 0.25;
   scene.add(wallSun);
-  const pot = rounded(0.55, 0.55, 0.5, 0.13, mat('#e7a7a9'), 3.9, 0.43, -2.7);
-  scene.add(pot);
-  for (let i = 0; i < 7; i++) {
-    const a = (i * Math.PI * 2) / 7;
-    const leaves = [
-      [3.9, 0.72, -2.7],
-      [3.9 + Math.cos(a) * 0.13, 1.1, -2.7 + Math.sin(a) * 0.13],
-      [3.9 + Math.cos(a) * 0.4, 1.39, -2.7 + Math.sin(a) * 0.24],
-    ];
-    scene.add(curve(leaves, 0.028, mat('#83a78c')));
-    const l = ball(
-      0.13,
-      mat('#9bbb9a'),
-      leaves[2][0],
-      leaves[2][1],
-      leaves[2][2],
-    );
-    l.scale.set(1, 0.42, 0.77);
-    scene.add(l);
-  }
-  scene.add(rounded(1.1, 0.46, 0.7, 0.12, mat('#b99b7f'), -3.91, 0.39, -2.78));
+  const cottagePlant = pottedPlant(0);
+  cottagePlant.scale.setScalar(1.25);
+  cottagePlant.position.set(3.9, 0, -2.7);
+  scene.add(cottagePlant);
+  restOnSurface(cottagePlant, GROUND.cottage, 0.004);
+  addContactShadow(scene, cottagePlant, GROUND.cottage, 0.16);
+  scene.add(rounded(1.1, 0.46, 0.7, 0.12, mat('#b99b7f'), -3.91, 0.3, -2.78));
   for (let i = 0; i < 3; i++) {
     const p = rounded(
       0.12,
@@ -878,7 +905,7 @@ export function createShelfScene() {
       0.045,
       mat('#f9e8d9'),
       -4.23 + i * 0.33,
-      0.79,
+      0.7,
       -2.67,
     );
     p.rotation.z = 0.08 * (i - 1);
@@ -1041,7 +1068,7 @@ export function createShelfScene() {
       floorMat.map = floorTexture;
       floorMat.color.set('#ffffff');
     } else {
-      floorMat.map = null;
+      floorMat.map = grainTexture('wood');
       floorMat.color.set('#e6c8ad');
     }
     floorMat.needsUpdate = true;
@@ -1106,7 +1133,7 @@ export function createShelfScene() {
               0.05,
               woodMat,
               (left + right) / 2,
-              y - 0.085,
+              y - 0.075,
               z,
             ),
           );
@@ -1114,9 +1141,22 @@ export function createShelfScene() {
             additions.add(
               rounded(0.1, 0.85, 0.95, 0.035, woodMat, x, y + 0.3, z),
             );
+          if (z < -2)
+            for (const x of [left + 0.14, right - 0.14]) {
+              additions.add(
+                rounded(0.12, 0.12, 0.78, 0.025, bronze, x, y - 0.15, -3.4),
+              );
+              additions.add(
+                rounded(0.14, 0.36, 0.12, 0.025, bronze, x, y - 0.3, -3.66),
+              );
+            }
         }
       }
       if (owns(s, 'cabinet')) {
+        additions.add(rounded(4.15, 0.7, 1.25, 0.08, woodMat, 0, 0.42, 0.25));
+        for (const x of [-1.98, 1.98])
+          for (const z of [-0.34, 0.84])
+            additions.add(rounded(0.06, 3.35, 0.06, 0.018, bronze, x, 1.73, z));
         const glass = new THREE.MeshPhysicalMaterial({
           color: '#dae7e3',
           transparent: true,
@@ -1139,22 +1179,10 @@ export function createShelfScene() {
       }
       if (owns(s, 'plants'))
         for (let j = 0; j < 3; j++) {
-          const x = -4 + j * 1.1;
-          additions.add(
-            rounded(0.38, 0.38, 0.38, 0.08, mat('#d2b5aa'), x, 0.2, 0.9),
-          );
-          for (let k = 0; k < 5; k++) {
-            const a = (k * Math.PI * 2) / 5;
-            const leaf = ball(
-              0.22,
-              mat('#94b59b'),
-              x + Math.sin(a) * 0.2,
-              0.6 + Math.cos(a) * 0.15,
-              0.9,
-            );
-            leaf.scale.set(0.5, 1.7, 0.35);
-            additions.add(leaf);
-          }
+          const plant = pottedPlant(j);
+          plant.position.set(-4 + j * 1.1, 0, 0.9);
+          additions.add(plant);
+          restOnSurface(plant, GROUND.cottage, 0.004);
         }
       if (owns(s, 'ornaments'))
         for (let j = 0; j < 3; j++) {
@@ -1172,7 +1200,7 @@ export function createShelfScene() {
             },
             0.6,
           );
-          o.position.set(-3 + j * 0.8, 0.12, 2);
+          o.position.set(-3 + j * 0.8, GROUND.cottage, 2);
           additions.add(o);
         }
       if (owns(s, 'wallGallery'))

@@ -1,33 +1,89 @@
 import * as T from 'three';
 import { createTreasure } from './treasures.js';
-import { ITEMS } from './catalog.js';
+import {
+  GROUND,
+  createSurface,
+  restOnSurface,
+  addContactShadow,
+  disposeContactShadow,
+  softDiscTexture,
+} from './surfaces.js';
+import { waterLily } from './scenery.js';
+import { grainTexture, addSky } from './visuals.js';
 const V = (x, y, z) => new T.Vector3(x, y, z);
 export function createMoonpoolScene() {
   const scene = new T.Scene();
   scene.background = new T.Color('#aebfda');
+  scene.userData.exposure = 1.07;
+  scene.userData.environmentIntensity = 0.2;
+  addSky(scene, '#949fc5', '#dfcfdc');
   scene.fog = new T.FogExp2('#b9d1dc', 0.011);
   const camera = new T.PerspectiveCamera(67, 1, 0.1, 100);
   camera.position.set(0, 1.7, 5.2);
   camera.rotation.order = 'YXZ';
   camera.rotation.x = -0.06;
-  scene.add(new T.HemisphereLight('#e5dffb', '#5b9e9c', 1.7));
-  const sun = new T.DirectionalLight('#fff1df', 1.8);
+  scene.add(new T.HemisphereLight('#e5dffb', '#5b9e9c', 1.3));
+  const sun = new T.DirectionalLight('#fff1df', 2.1);
   sun.position.set(-8, 16, 6);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.left = -16;
+  sun.shadow.camera.right = 16;
+  sun.shadow.camera.top = 20;
+  sun.shadow.camera.bottom = -20;
+  sun.shadow.bias = -0.0001;
+  sun.shadow.normalBias = 0.01;
   scene.add(sun);
   const stone = new T.MeshStandardMaterial({
       color: '#a1abae',
       roughness: 0.86,
+      map: grainTexture(),
     }),
-    pale = new T.MeshStandardMaterial({ color: '#d0c9c8', roughness: 0.9 });
-  const floor = new T.Mesh(new T.PlaneGeometry(29, 31, 24, 24), pale);
+    pale = new T.MeshStandardMaterial({
+      color: '#d6cfc7',
+      roughness: 0.95,
+      map: grainTexture(),
+    });
+  const POOLS = [
+    [-5.2, -1, 3, 4],
+    [5.2, -4.5, 3.2, 4.5],
+    [0, -10.6, 3.6, 1.5],
+  ];
+  const contour = (rx, rz, index) =>
+    Array.from({ length: 64 }, (_, j) => {
+      const a = (j * Math.PI * 2) / 64,
+        r =
+          1 + 0.035 * Math.sin(a * 5 + index) + 0.02 * Math.cos(a * 3 - index);
+      return [Math.cos(a) * rx * r, Math.sin(a) * rz * r];
+    });
+  const floorShape = new T.Shape();
+  floorShape.moveTo(-14.5, 18.5);
+  floorShape.lineTo(14.5, 18.5);
+  floorShape.lineTo(14.5, -12.5);
+  floorShape.lineTo(-14.5, -12.5);
+  floorShape.closePath();
+  POOLS.forEach(([x, z, rx, rz], index) => {
+    const hole = new T.Path();
+    contour(rx, rz, index).forEach(([px, pz], j) =>
+      j ? hole.lineTo(x + px, -z - pz) : hole.moveTo(x + px, -z - pz),
+    );
+    hole.closePath();
+    floorShape.holes.push(hole);
+  });
+  const floor = new T.Mesh(new T.ShapeGeometry(floorShape), pale);
   floor.rotation.x = -Math.PI / 2;
-  floor.position.set(0, -0.16, -3);
+  floor.position.y = GROUND.moonpool;
+  floor.receiveShadow = true;
+  floor.name = 'moonpool-ground';
   scene.add(floor);
+  const surface = createSurface(GROUND.moonpool, [floor]);
   const rockGeo = new T.SphereGeometry(1, 18, 12),
     rock = (x, y, z, sx, sy, sz) => {
       const o = new T.Mesh(rockGeo, stone);
       o.position.set(x, y, z);
       o.scale.set(sx, sy, sz);
+      o.castShadow = true;
+      o.receiveShadow = true;
       scene.add(o);
       return o;
     };
@@ -42,22 +98,48 @@ export function createMoonpoolScene() {
   }
   // A warm, open grotto: pools are below the shallow, walkable shoreline.
   const waters = [],
-    caustics = [];
-  for (const [x, z, rx, rz] of [
-    [-5.2, -1, 3, 4],
-    [5.2, -4.5, 3.2, 4.5],
-    [0, -10.6, 3.6, 1.5],
-  ]) {
-    const bed = new T.Mesh(
-      new T.CircleGeometry(1, 64),
-      new T.MeshStandardMaterial({ color: '#62b9b2', roughness: 0.7 }),
+    caustics = [],
+    waterPlants = [];
+  for (const [poolIndex, [x, z, rx, rz]] of POOLS.entries()) {
+    const outline = contour(rx, rz, poolIndex),
+      shape = new T.Shape();
+    outline.forEach(([px, pz], j) =>
+      j ? shape.lineTo(px, -pz) : shape.moveTo(px, -pz),
     );
-    bed.rotation.x = -Math.PI / 2;
-    bed.position.set(x, -0.12, z);
-    bed.scale.set(rx, rz, 1);
+    shape.closePath();
+    const poolGeometry = new T.ShapeGeometry(shape);
+    poolGeometry.rotateX(-Math.PI / 2);
+    const bedPositions = [0, 0, 0],
+      bedColors = [],
+      bedIndices = [];
+    const deep = new T.Color('#62aaa8'),
+      shallow = new T.Color('#b5dcca');
+    bedColors.push(deep.r, deep.g, deep.b);
+    outline.forEach(([px, pz], j) => {
+      bedPositions.push(px, 0, pz);
+      bedColors.push(shallow.r, shallow.g, shallow.b);
+      bedIndices.push(0, ((j + 1) % outline.length) + 1, j + 1);
+    });
+    const bedGeometry = new T.BufferGeometry();
+    bedGeometry.setAttribute(
+      'position',
+      new T.Float32BufferAttribute(bedPositions, 3),
+    );
+    bedGeometry.setAttribute(
+      'color',
+      new T.Float32BufferAttribute(bedColors, 3),
+    );
+    bedGeometry.setIndex(bedIndices);
+    bedGeometry.computeVertexNormals();
+    const bed = new T.Mesh(
+      bedGeometry,
+      new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.75 }),
+    );
+    bed.position.set(x, -0.24, z);
+    bed.receiveShadow = true;
     scene.add(bed);
-    const geo = new T.CircleGeometry(1, 64);
-    geo.rotateX(-Math.PI / 2);
+    surface.meshes.push(bed);
+    const geo = poolGeometry.clone();
     const water = new T.Mesh(
       geo,
       new T.MeshPhysicalMaterial({
@@ -65,13 +147,12 @@ export function createMoonpoolScene() {
         roughness: 0.16,
         metalness: 0.08,
         transparent: true,
-        opacity: 0.57,
+        opacity: 0.45,
         clearcoat: 1,
         side: T.DoubleSide,
       }),
     );
-    water.scale.set(rx, 1, rz);
-    water.position.set(x, -0.025, z);
+    water.position.set(x, -0.175, z);
     scene.add(water);
     waters.push(water);
     // Visible stones under the clear shallows, and luminous lilies at the edges.
@@ -86,7 +167,7 @@ export function createMoonpoolScene() {
         r = Math.sqrt((k + 1) / 58) * 0.92;
       pebble.position.set(
         x + Math.sin(a) * rx * r,
-        -0.09,
+        -0.22,
         z + Math.cos(a) * rz * r,
       );
       pebble.scale.set(0.07 + (k % 3) * 0.025, 0.035, 0.09);
@@ -99,16 +180,10 @@ export function createMoonpoolScene() {
       const a = k * 2.1 + 0.7,
         lx = x + Math.sin(a) * rx * 0.66,
         lz = z + Math.cos(a) * rz * 0.66;
-      const pad = new T.Mesh(
-        new T.CircleGeometry(0.3, 28, 0.15, Math.PI * 1.88),
-        new T.MeshStandardMaterial({ color: '#579e99', side: T.DoubleSide }),
-      );
-      pad.rotation.x = -Math.PI / 2;
-      pad.position.set(lx, 0.025, lz);
-      scene.add(pad);
-      const lily = createTreasure(ITEMS['pearl-lily-cup'], 1.1);
-      lily.position.set(lx, 0.03, lz);
+      const lily = waterLily(k + poolIndex);
+      lily.position.set(lx, -0.172, lz);
       scene.add(lily);
+      waterPlants.push({ lily, water });
     }
     for (let j = 0; j < 6; j++) {
       const ring = new T.Mesh(
@@ -123,10 +198,43 @@ export function createMoonpoolScene() {
       );
       ring.rotation.x = -Math.PI / 2;
       ring.scale.set(rx * 0.65, rz * 0.65, 1);
-      ring.position.set(x, 0.015 + j * 0.0001, z);
+      ring.position.set(x, -0.168 + j * 0.0001, z);
       scene.add(ring);
       caustics.push(ring);
     }
+    const bankPositions = [],
+      bankIndices = [];
+    outline.forEach(([px, pz], j) => {
+      bankPositions.push(
+        px * 1.003,
+        GROUND.moonpool,
+        pz * 1.003,
+        px * 0.96,
+        -0.24,
+        pz * 0.96,
+      );
+      const a = j * 2,
+        b = ((j + 1) % outline.length) * 2;
+      bankIndices.push(a, b, a + 1, a + 1, b, b + 1);
+    });
+    const bankGeometry = new T.BufferGeometry();
+    bankGeometry.setAttribute(
+      'position',
+      new T.Float32BufferAttribute(bankPositions, 3),
+    );
+    bankGeometry.setIndex(bankIndices);
+    bankGeometry.computeVertexNormals();
+    const bank = new T.Mesh(
+      bankGeometry,
+      new T.MeshStandardMaterial({
+        color: '#c4c9b9',
+        roughness: 0.95,
+        side: T.DoubleSide,
+      }),
+    );
+    bank.position.set(x, 0, z);
+    scene.add(bank);
+    surface.meshes.push(bank);
   }
   // Low coral gardens frame the water without obscuring the central path.
   for (const [j, x, z] of [
@@ -153,6 +261,8 @@ export function createMoonpoolScene() {
     );
     model.position.set(x, 0, z);
     scene.add(model);
+    restOnSurface(model, surface, 0.012);
+    addContactShadow(scene, model, surface, 0.16);
     for (let k = 0; k < 5; k++) {
       const stem = new T.Mesh(
         new T.CylinderGeometry(0.018, 0.032, 0.25 + k * 0.04, 7),
@@ -160,7 +270,7 @@ export function createMoonpoolScene() {
       );
       stem.position.set(
         x + 0.5 + Math.sin(k * 2.4) * 0.22,
-        0.13 + k * 0.02,
+        GROUND.moonpool + (0.25 + k * 0.04) / 2,
         z + Math.cos(k * 2.4) * 0.2,
       );
       scene.add(stem);
@@ -174,7 +284,7 @@ export function createMoonpoolScene() {
         }),
       );
       cap.position.copy(stem.position);
-      cap.position.y += 0.14 + k * 0.02;
+      cap.position.y += (0.25 + k * 0.04) / 2 - 0.004;
       scene.add(cap);
     }
   }
@@ -189,9 +299,11 @@ export function createMoonpoolScene() {
         roughness: 0.9,
       }),
     );
-    o.position.set(x, -0.025, z);
+    o.position.set(x, 0, z);
     o.rotation.y = j * 0.37;
     scene.add(o);
+    restOnSurface(o, surface, 0.012);
+    surface.meshes.push(o);
   }
   const plants = new T.Group();
   scene.add(plants);
@@ -213,7 +325,7 @@ export function createMoonpoolScene() {
       const a = k * 2.399;
       dummy.position.set(
         x + Math.sin(a) * 0.45,
-        0.03 + (k % 3) * 0.02,
+        GROUND.moonpool + 0.05,
         z + Math.cos(a) * 0.4,
       );
       dummy.scale.set(0.17, 0.08, 0.13);
@@ -248,6 +360,7 @@ export function createMoonpoolScene() {
       leaf.rotation.set(0.2 + Math.sin(a) * 0.24, a, (k - 2) * 0.18);
       leaf.scale.setScalar(0.6 + (j % 4) * 0.13);
       plants.add(leaf);
+      restOnSurface(leaf, surface, 0.01);
     }
     if (j % 3 === 0) {
       const model = createTreasure(
@@ -266,6 +379,8 @@ export function createMoonpoolScene() {
       );
       model.position.set(x - side * 0.8, 0.02, z);
       scene.add(model);
+      restOnSurface(model, surface, 0.015);
+      addContactShadow(scene, model, surface, 0.15);
     }
     if (j % 4 === 0) {
       const mineral = createTreasure(
@@ -284,6 +399,8 @@ export function createMoonpoolScene() {
       );
       mineral.position.set(x, 0.02, z - 0.65);
       scene.add(mineral);
+      restOnSurface(mineral, surface, 0.014);
+      addContactShadow(scene, mineral, surface, 0.16);
     }
   }
   moss.instanceMatrix.needsUpdate = true;
@@ -366,6 +483,21 @@ export function createMoonpoolScene() {
   moon.position.set(0, 5, -15);
   moon.scale.z = 0.3;
   scene.add(moon);
+  const halo = new T.Sprite(
+    new T.SpriteMaterial({
+      map: softDiscTexture(),
+      color: '#f1dcdf',
+      transparent: true,
+      opacity: 0.32,
+      depthWrite: false,
+    }),
+  );
+  halo.position.copy(moon.position);
+  halo.scale.set(3, 3, 1);
+  scene.add(halo);
+  const moonlight = new T.PointLight('#d8c6e5', 6, 10, 2);
+  moonlight.position.set(0, 3.6, -12.5);
+  scene.add(moonlight);
   for (const x of [-2.3, 2.3]) {
     const fall = new T.Mesh(
       new T.CylinderGeometry(0.09, 0.13, 1.9, 12),
@@ -396,6 +528,7 @@ export function createMoonpoolScene() {
     new T.PointsMaterial({
       color: '#fff4d6',
       size: 0.045,
+      map: softDiscTexture(),
       transparent: true,
       opacity: 0.7,
       depthWrite: false,
@@ -411,14 +544,19 @@ export function createMoonpoolScene() {
   const finds = [];
   function spawn(item, method, x, z, uid) {
     const g = new T.Group();
-    g.position.set(x, 0.05, z);
+    g.position.set(x, 0, z);
     g.userData.find = { item, method, uid };
-    g.add(createTreasure(item, 0.95));
+    const model = createTreasure(item, 0.95);
+    model.name = 'discovery-model';
+    g.add(model);
+    restOnSurface(model, surface, 0.003);
     scene.add(g);
+    g.userData.shadow = addContactShadow(scene, model, surface, 0.2);
     finds.push(g);
     return g;
   }
   function remove(g) {
+    disposeContactShadow(g.userData.shadow);
     scene.remove(g);
     const index = finds.indexOf(g);
     if (index >= 0) finds.splice(index, 1);
@@ -428,8 +566,11 @@ export function createMoonpoolScene() {
   }
   function update(t) {
     waters.forEach((w, j) => {
-      w.position.y = -0.025 + Math.sin(t * 0.7 + j) * 0.006;
-      w.material.opacity = 0.54 + Math.sin(t * 0.4 + j) * 0.035;
+      w.position.y = -0.175 + Math.sin(t * 0.7 + j) * 0.004;
+      w.material.opacity = 0.43 + Math.sin(t * 0.4 + j) * 0.025;
+    });
+    waterPlants.forEach(({ lily, water }) => {
+      lily.position.y = water.position.y + 0.003;
     });
     caustics.forEach((c, j) => {
       c.material.opacity = 0.065 + 0.045 * Math.sin(t * 0.8 + j * 0.5);
@@ -446,6 +587,7 @@ export function createMoonpoolScene() {
     remove,
     clearFinds,
     update,
+    surface,
     stations: { exit: V(0, 0, 6.4) },
   };
 }

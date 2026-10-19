@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { createStudioEnvironment } from './visuals.js';
 import './style.css';
 import {
   CATALOG,
@@ -57,6 +58,7 @@ const preview = new URLSearchParams(location.search).get('preview');
 const loaded = [
     'cottage',
     'cottage-exterior',
+    'grounding',
     'cave',
     'legacy',
     'moonpool',
@@ -96,15 +98,21 @@ function save() {
 }
 const beach = createBeachScene(),
   shelf = createShelfScene();
-let cave, moonpool;
+let cave, moonpool, worldEnvironment;
+function applyEnvironment(w) {
+  if (worldEnvironment) w.scene.environment = worldEnvironment.texture;
+  w.scene.environmentIntensity = w.scene.userData.environmentIntensity ?? 0.28;
+  return w;
+}
 const getCave = () => {
   if (!cave) {
-    cave = createCaveScene();
+    cave = applyEnvironment(createCaveScene());
     cave.moonpoolPassage.setOpen(owns(state, 'moonpoolAccess'));
   }
   return cave;
 };
-const getMoonpool = () => moonpool || (moonpool = createMoonpoolScene());
+const getMoonpool = () =>
+  moonpool || (moonpool = applyEnvironment(createMoonpoolScene()));
 shelf.customize(state);
 beach.setGate(owns(state, 'caveAccess'));
 const renderer = new THREE.WebGLRenderer({
@@ -116,7 +124,10 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.24;
+renderer.toneMappingExposure = 1.08;
+worldEnvironment = createStudioEnvironment(renderer);
+applyEnvironment(beach);
+applyEnvironment(shelf);
 $('game').append(renderer.domElement);
 renderer.domElement.tabIndex = 0;
 const cottageControls = new OrbitControls(shelf.camera, renderer.domElement);
@@ -181,8 +192,17 @@ function refreshHUD() {
   $('dayNumber').textContent = state.day;
   const pool = state[BIOMES[mode]?.finds || 'beachFinds'],
     remaining = pool?.filter((f) => canDiscover(state, f.method)).length || 0;
-  $('mission').textContent =
-    `${BIOMES[mode]?.name || 'Your cottage'} · ${remaining} reachable finds · ${uniqueCount()}/${CATALOG.length} treasures`;
+  document.body.dataset.biome = mode;
+  $('mission').innerHTML =
+    '<b>' +
+    (BIOMES[mode]?.name || 'Your cottage') +
+    '</b><span>' +
+    remaining +
+    ' reachable finds <i>·</i> ' +
+    uniqueCount() +
+    '/' +
+    CATALOG.length +
+    ' treasures</span>';
 }
 function spawnTides() {
   beach.clearFinds();
@@ -680,6 +700,7 @@ function enterShelf() {
   closePanel();
   if (document.pointerLockElement) document.exitPointerLock();
   mode = 'shelf';
+  refreshHUD();
   document.body.classList.add('in-shelf');
   $('shelfControls').classList.remove('hidden');
   $('crosshair').classList.add('hidden');
@@ -920,9 +941,14 @@ $('panelContent').addEventListener('click', (e) => {
     refreshHUD();
     refreshShelfUI();
     openDeveloperMenu();
-    toast(outcome.added || outcome.discovered || outcome.rewards.length || outcome.sets.length
-      ? `All ${outcome.total} treasures unlocked! ${outcome.rewards.length} decoration rewards earned ✦`
-      : 'You already have all collectibles and rewards. ♡');
+    toast(
+      outcome.added ||
+        outcome.discovered ||
+        outcome.rewards.length ||
+        outcome.sets.length
+        ? `All ${outcome.total} treasures unlocked! ${outcome.rewards.length} decoration rewards earned ✦`
+        : 'You already have all collectibles and rewards. ♡',
+    );
     return;
   }
   if (a === 'dev-open-journal') {
@@ -970,8 +996,7 @@ $('panelContent').addEventListener('click', (e) => {
     if (id === 'moonpool') {
       enterMoonpool();
       getMoonpool().camera.position.set(0, 1.7, 1.3);
-    }
-    else if (id === 'cave' || id === 'passage') {
+    } else if (id === 'cave' || id === 'passage') {
       enterCave();
       if (id === 'passage') {
         getCave().camera.position.set(0, 1.7, -20);
@@ -1408,7 +1433,10 @@ if (new URLSearchParams(location.search).has('gallery')) {
 if (loaded.preview) {
   started = true;
   $('overlay').classList.add('hidden');
-  if (preview === 'moonpool') enterMoonpool();
+  if (preview === 'grounding') {
+    beach.camera.position.set(0, 1.7, 5);
+    beach.camera.lookAt(0, 0.15, -3);
+  } else if (preview === 'moonpool') enterMoonpool();
   else if (preview === 'cottage-exterior') {
     beach.camera.position.set(-7.5, 2.9, 0.5);
     if (new URLSearchParams(location.search).get('angle') === 'side')
@@ -1456,12 +1484,20 @@ function animate() {
     const target = nearTarget(),
       prompt = target?.name || '';
     if (prompt !== lastPrompt) {
-      $('interaction').textContent = target ? 'E · ' + prompt : '';
+      $('interaction').replaceChildren();
+      if (target) {
+        const key = document.createElement('kbd'),
+          label = document.createElement('span');
+        key.textContent = 'E';
+        label.textContent = prompt;
+        $('interaction').append(key, label);
+      }
       $('interaction').classList.toggle('visible', !!target);
       lastPrompt = prompt;
     }
   }
   const w = mode === 'shelf' ? shelf : currentWorld();
+  renderer.toneMappingExposure = w.scene.userData.exposure ?? 1.08;
   renderer.render(w.scene, w.camera);
   renderMuseum(t);
 }

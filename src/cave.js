@@ -1,10 +1,20 @@
 import * as T from 'three';
 import { createTreasure } from './treasures.js';
 import { createRockPassage } from './passage.js';
+import {
+  GROUND,
+  createSurface,
+  restOnSurface,
+  addContactShadow,
+  disposeContactShadow,
+} from './surfaces.js';
+import { grainTexture } from './visuals.js';
 const V = (x, y, z) => new T.Vector3(x, y, z);
 export function createCaveScene() {
   const scene = new T.Scene();
-  scene.background = new T.Color('#22353f');
+  scene.background = new T.Color('#1d333e');
+  scene.userData.exposure = 1.09;
+  scene.userData.environmentIntensity = 0.16;
   scene.fog = new T.FogExp2('#283c46', 0.028);
   const camera = new T.PerspectiveCamera(72, 1, 0.1, 90);
   camera.position.set(0, 1.7, 2);
@@ -12,7 +22,8 @@ export function createCaveScene() {
   scene.add(new T.HemisphereLight('#bbd7d5', '#66546e', 1.25));
   const rock = new T.MeshStandardMaterial({
     color: '#697980',
-    roughness: 0.92,
+    roughness: 0.94,
+    map: grainTexture(),
     side: T.DoubleSide,
   });
   // A warped continuous vault, with a narrower entrance and rippled mineral strata.
@@ -37,14 +48,26 @@ export function createCaveScene() {
   geo.setAttribute('position', new T.Float32BufferAttribute(vertices, 3));
   geo.setIndex(indices);
   geo.computeVertexNormals();
-  scene.add(new T.Mesh(geo, rock));
+  const vault = new T.Mesh(geo, rock);
+  scene.add(vault);
+  const uv = [];
+  for (let j = 0; j <= rows; j++)
+    for (let k = 0; k <= cols; k++) uv.push((k / cols) * 3, (j / rows) * 2);
+  geo.setAttribute('uv', new T.Float32BufferAttribute(uv, 2));
   const ground = new T.Mesh(
     new T.PlaneGeometry(17, 32, 12, 24),
-    new T.MeshStandardMaterial({ color: '#7c8784', roughness: 0.85 }),
+    new T.MeshStandardMaterial({
+      color: '#71827f',
+      roughness: 0.93,
+      map: grainTexture(),
+    }),
   );
   ground.rotation.x = -Math.PI / 2;
-  ground.position.set(0, -0.06, -10);
+  ground.position.set(0, GROUND.cave, -10);
+  ground.name = 'cave-ground';
+  ground.receiveShadow = true;
   scene.add(ground);
+  const surface = createSurface(GROUND.cave, [ground]);
   const glow = new T.MeshStandardMaterial({
     color: '#8fbba3',
     emissive: '#548b71',
@@ -68,7 +91,7 @@ export function createCaveScene() {
         r = 0.65 * Math.sqrt(k / 18);
       dummy.position.set(
         x + Math.sin(angle) * r,
-        0.035 + (k % 4) * 0.016,
+        GROUND.cave + 0.035,
         z + Math.cos(angle) * r * 0.6,
       );
       dummy.scale.set(
@@ -95,8 +118,10 @@ export function createCaveScene() {
         },
         1.8,
       );
-      crystal.position.set(x, 0.1, z);
+      crystal.position.set(x, 0, z);
+      restOnSurface(crystal, surface, 0.012);
       scene.add(crystal);
+      addContactShadow(scene, crystal, surface, 0.2);
       const light = new T.PointLight(j % 8 ? '#a4dcd3' : '#bfa9d6', 5, 7, 2);
       light.position.set(x, 1, z);
       scene.add(light);
@@ -119,6 +144,17 @@ export function createCaveScene() {
     stalactite.scale.setScalar(0.7 + (j % 4) * 0.2);
     stalactite.rotation.z = Math.PI;
     stalactite.position.set(Math.sin(j * 2.4) * 5, 4.1, z);
+    const ceilingRay = new T.Raycaster(
+      V(stalactite.position.x, 12, z),
+      V(0, -1, 0),
+    );
+    vault.updateMatrixWorld(true);
+    const ceiling = ceilingRay.intersectObject(vault)[0];
+    if (ceiling) {
+      stalactite.updateMatrixWorld(true);
+      const top = new T.Box3().setFromObject(stalactite).max.y;
+      stalactite.position.y += ceiling.point.y - top + 0.05;
+    }
     scene.add(stalactite);
     if (j % 3 === 0) {
       const stone = new T.Mesh(new T.SphereGeometry(0.65, 16, 12), rock);
@@ -154,7 +190,8 @@ export function createCaveScene() {
       },
       1.7,
     );
-    bloom.position.set(sign * 2.5, 0.1, -24.3);
+    bloom.position.set(sign * 2.5, 0, -24.3);
+    restOnSurface(bloom, surface, 0.01);
     scene.add(bloom);
   }
   for (const [x, z, r] of [
@@ -174,7 +211,7 @@ export function createCaveScene() {
       }),
     );
     water.rotation.x = -Math.PI / 2;
-    water.position.set(x, 0.025, z);
+    water.position.set(x, GROUND.cave + 0.023, z);
     water.scale.y = 1.45;
     scene.add(water);
     waters.push(water);
@@ -184,18 +221,22 @@ export function createCaveScene() {
   const finds = [];
   function spawn(item, method, x, z, uid) {
     const g = new T.Group();
-    g.position.set(x, 0.025, z);
+    g.position.set(x, 0, z);
     g.userData.find = { item, method, uid };
     const o = createTreasure(item, 0.86);
     g.add(o);
+    o.name = 'discovery-model';
+    restOnSurface(o, surface, 0.003);
     const fleck = new T.Mesh(new T.OctahedronGeometry(0.035), glow);
-    fleck.position.set(0.2, 0.16, 0.1);
+    fleck.position.set(0.2, GROUND.cave + 0.025, 0.1);
     g.add(fleck);
     scene.add(g);
+    g.userData.shadow = addContactShadow(scene, o, surface, 0.22);
     finds.push(g);
     return g;
   }
   function remove(g) {
+    disposeContactShadow(g.userData.shadow);
     scene.remove(g);
     const j = finds.indexOf(g);
     if (j >= 0) finds.splice(j, 1);
@@ -221,6 +262,7 @@ export function createCaveScene() {
     clearFinds,
     update,
     moonpoolPassage,
+    surface,
     stations: { exit: V(0, 0, 3), moonpool: V(0, 0, -21.8) },
   };
 }
